@@ -1,0 +1,250 @@
+#!/usr/bin/env python
+
+import gtk
+import gobject
+from Xlib import X, display, error, Xatom, Xutil
+import Xlib.protocol.event
+
+padding = 2
+spacing = 1
+color_normal = '#333333'
+color_highlight = '#999999'
+rows = 2
+cols = 3
+
+
+class nap:
+	def __init__(self):
+		# default config
+		self.padding = 3
+		self.spacing = 1
+		self.color_normal = "green"
+		self.color_highlight = "red"
+		self.rows = 2
+		self.cols = 3
+		self.grid = []
+
+		self.display = display.Display()
+		self.screen  = self.display.screen()
+		self.root    = self.screen.root 
+
+		self.desktop = self.get_desktop_names()
+
+		self.pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, 20, 20)
+		self.pixbuf.fill(0xffffffff)
+
+		self.icon = gtk.StatusIcon()
+		self.icon.set_from_pixbuf(self.pixbuf)
+		self.update_pixbuf(self.get_current_desktop())
+
+		self.icon.connect("activate", self.left)
+		self.icon.connect("popup-menu", self.right)
+
+		self.get_desktop_tasks(0)
+
+
+	def get_desktop_tasks(self, num):
+		tasks = self.root.get_full_property(self.display.intern_atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
+		print tasks
+
+	def get_current_desktop(self):
+		"""Return the index of the currently active desktop."""
+		return self.root.get_full_property(self.display.intern_atom("_NET_CURRENT_DESKTOP"), 0).value[0]
+
+	def get_desktop_count(self):
+		"""Return the current number of desktops."""
+		return self.root.get_full_property(self.display.intern_atom("_NET_NUMBER_OF_DESKTOPS"), 0).value[0]
+
+	def get_desktop_names(self):
+		"""Return a list containing desktop names."""
+		count = self.get_desktop_count()
+		names = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_NAMES"), 0)  
+		if hasattr(names, "value"):
+			names = names.value.strip("\x00").split("\x00")
+		else:
+			names = []
+			for i in range(count):
+				names.append(str(i)) 
+
+		if len(names) < count:
+			for i in range(len(names), count):
+				names.append(str(i))  
+
+		return names
+
+
+	def update_grid(self):
+		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
+
+		n = max(self.rows, self.cols)
+		c = (w - 2 * self.padding - (n - 1) * self.spacing) / self.cols
+
+		grid_width = self.cols * c + (self.cols - 1) * self.spacing
+		grid_height = self.rows * c + (self.rows - 1) * self.spacing
+
+		off_x = (w - 2*self.padding - grid_width) / 2
+		off_y = (h - 2*self.padding - grid_height) / 2
+
+		grid = []
+		for i in range(self.rows):
+			for j in range(self.cols):
+				x = off_x + self.padding + j*(c + self.spacing)
+				y = off_y + self.padding + i*(c + self.spacing)
+
+				if i * self.rows + j < len(self.desktop) - 1:
+					grid.append((x, y, c, c))
+
+		self.grid = grid
+
+	def update_pixbuf(self, active = -1):
+		self.update_grid()
+		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
+
+		map = gtk.gdk.Colormap(gtk.gdk.visual_get_best(), False)
+		color_trans = map.alloc_color('#000')
+		color_normal = map.alloc_color(self.color_normal)
+		color_high = map.alloc_color(self.color_highlight)
+
+		pixmap = gtk.gdk.Pixmap(None, w, h, 32)
+		gc = pixmap.new_gc()
+
+		#---ACTUAL DRAWING CODE---
+		gc.set_foreground(color_trans)
+		pixmap.draw_rectangle(gc, True, 0, 0, w, h)
+
+		gc.set_foreground(color_normal)
+
+		i = 0
+		for cell in self.grid:
+			if(i == active):
+				gc.set_foreground(color_high)
+			else:
+				gc.set_foreground(color_normal)
+
+			i = i + 1
+
+			x, y, size_x, size_y = cell
+			pixmap.draw_rectangle(gc, True, x, y, size_x, size_y)
+		#-------------------------
+
+		self.pixbuf.get_from_drawable(pixmap, map, 0, 0, 0, 0, w, h)
+		self.icon.set_from_pixbuf(self.pixbuf)
+
+
+	def get_screen(self):
+		pointer_x, pointer_y, mods = self.icon.get_screen().get_root_window().get_pointer()
+
+		screen, rectangle, orientation = self.icon.get_geometry()
+		width, height, size_x, size_y = rectangle;
+
+		pos_x = pointer_x - width
+		pos_y = pointer_y - height
+
+		i = 0
+		for cell in self.grid:
+			x, y, size_x, size_y = cell
+			if pos_x >= x and pos_x <= x + size_x and pos_y >= y and pos_y <= y + size_y:
+				return i
+			i = i + 1
+
+		return -1
+
+
+	def left(self, status_icon):
+		num = self.get_screen()
+
+		if 0 <= num <= len(self.desktop):
+			self.update_pixbuf(num)
+			gobject.idle_add(self.switch_desktop, num)
+
+
+	def switch_desktop(self, num):
+		win = self.root
+		ctype = self.display.intern_atom("_NET_CURRENT_DESKTOP")
+		data = [num]
+
+		self.send_event(win, ctype, data)
+		self.display.flush()
+
+
+	def send_event(self, win, ctype, data, mask=None):
+		""" Send a ClientMessage event to the root """
+		data = (data+[0]*(5-len(data)))[:5]
+		ev = Xlib.protocol.event.ClientMessage(window=win, client_type=ctype, data=(32,(data)))
+
+		if not mask:
+			mask = (X.SubstructureRedirectMask|X.SubstructureNotifyMask)
+		self.root.send_event(ev, event_mask=mask)
+
+
+
+	def right(self, status_icon, button, activate_time):
+		menu = gtk.Menu()
+
+
+		for desktop in self.get_desktop_names():
+			submenu = gtk.Menu()
+			item = gtk.MenuItem(desktop)
+			item.set_submenu(submenu)
+			menu.add(item)
+
+		sep = gtk.SeparatorMenuItem()
+		menu.add(sep)
+
+		item = gtk.ImageMenuItem(gtk.STOCK_ABOUT)
+		item.connect("activate", self.about)
+		menu.add(item)
+
+		item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
+		item.connect("activate", gtk.main_quit)
+		menu.add(item)
+
+		menu.show_all()
+
+		menu.popup(None, None, gtk.status_icon_position_menu, 1, activate_time, self.icon)
+
+	def about(self, menu_item):
+		print self.icon.get_geometry()
+		window = gtk.Window(gtk.WINDOW_TOPLEVEL)
+		window.set_size_request(200, 100)
+		window.set_title("About")
+		window.show()
+
+	def set_padding(self, padding):
+		self.padding = padding
+
+	def set_spacing(self, spacing):
+		self.spacing = spacing
+
+	def set_color_normal(self, color):
+		self.color_normal = color
+
+	def set_color_highlight(self, color):
+		self.color_highlight = color
+
+	def set_rows(self, rows):
+		self.rows = rows
+
+	def set_cols(self, cols):
+		self.cols = cols
+
+	def main(self):
+		num = self.get_current_desktop()
+		self.update_pixbuf(num)
+		gtk.main()
+
+
+if __name__ == '__main__':
+	nap = nap()
+
+	nap.set_padding(padding)
+	nap.set_spacing(spacing)
+	nap.set_color_normal(color_normal)
+	nap.set_color_highlight(color_highlight)
+	nap.set_rows(rows)
+	nap.set_cols(cols)
+
+	nap.main()
+
+
+
