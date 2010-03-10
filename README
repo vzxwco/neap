@@ -1,0 +1,8 @@
+neap is a neat pager unintrusive and light (memory / cpu / aestetic) that runs in the notification area (i.e. systray) of your panel. neap follows freedesktop specifications.
+
+
+0.2 features
+
+    * user-friendly: switch desktops with a single mouse-click
+    * easy to customize: normal / highlight color, padding and spacing
+ 
