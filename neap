@@ -30,24 +30,50 @@ import gobject
 from Xlib import X, display, error, Xatom, Xutil
 import Xlib.protocol.event
 
+
+# number of pixels between outer border and the actual grid
 padding = 2
+
+# number of pixels between grid boxes
 spacing = 1
+
+# foreground color (inactive desktops)
 color_normal = '#333333'
+
+# highlight color (the active desktop)
 color_highlight = '#999999'
+
+# background color
+color_background = '#111111'
+
+# number of rows in desktop grid
 rows = 2
+
+# number of columns in desktop grid
 cols = 3
 
 
 class nap:
 	def __init__(self):
+		'''Initialization.'''
+		# program info
+		self.name = "neap"
+		self.version = "0.2"
+		self.author = ["Philip Busch <philip@0xe3.com>"]
+		self.website = "http://code.google.com/p/neap/"
+
 		# default config
 		self.padding = 3
 		self.spacing = 1
 		self.color_normal = "green"
 		self.color_highlight = "red"
+		self.color_background = "yellow"
 		self.rows = 2
 		self.cols = 3
 		self.grid = []
+
+		# menus
+		self.menu_about = None
 
 		self.display = display.Display()
 		self.screen  = self.display.screen()
@@ -69,19 +95,19 @@ class nap:
 
 
 	def get_desktop_tasks(self, num):
-		tasks = self.root.get_full_property(self.display.intern_atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
-		print tasks
+		'''Returns a list of tasks for desktop num.'''
+		return self.root.get_full_property(self.display.intern_atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
 
 	def get_current_desktop(self):
-		"""Return the index of the currently active desktop."""
+		'''Returns the index of the currently active desktop.'''
 		return self.root.get_full_property(self.display.intern_atom("_NET_CURRENT_DESKTOP"), 0).value[0]
 
 	def get_desktop_count(self):
-		"""Return the current number of desktops."""
+		'''Returns the current number of desktops.'''
 		return self.root.get_full_property(self.display.intern_atom("_NET_NUMBER_OF_DESKTOPS"), 0).value[0]
 
 	def get_desktop_names(self):
-		"""Return a list containing desktop names."""
+		'''Returns a list containing desktop names.'''
 		count = self.get_desktop_count()
 		names = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_NAMES"), 0)  
 		if hasattr(names, "value"):
@@ -99,6 +125,7 @@ class nap:
 
 
 	def update_grid(self):
+		'''Updates internal grid structure.'''
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
 
 		n = max(self.rows, self.cols)
@@ -122,19 +149,20 @@ class nap:
 		self.grid = grid
 
 	def update_pixbuf(self, active = -1):
+		'''Updates internal icon pixbuf.'''
 		self.update_grid()
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
 
 		map = gtk.gdk.Colormap(gtk.gdk.visual_get_best(), False)
-		color_trans = map.alloc_color('#000')
 		color_normal = map.alloc_color(self.color_normal)
-		color_high = map.alloc_color(self.color_highlight)
+		color_high   = map.alloc_color(self.color_highlight)
+		color_back   = map.alloc_color(self.color_background)
 
 		pixmap = gtk.gdk.Pixmap(None, w, h, 32)
 		gc = pixmap.new_gc()
 
 		#---ACTUAL DRAWING CODE---
-		gc.set_foreground(color_trans)
+		gc.set_foreground(color_back)
 		pixmap.draw_rectangle(gc, True, 0, 0, w, h)
 
 		gc.set_foreground(color_normal)
@@ -157,6 +185,7 @@ class nap:
 
 
 	def get_screen(self):
+		'''Returns the clicked grid box number.'''
 		pointer_x, pointer_y, mods = self.icon.get_screen().get_root_window().get_pointer()
 
 		screen, rectangle, orientation = self.icon.get_geometry()
@@ -176,6 +205,7 @@ class nap:
 
 
 	def left(self, status_icon):
+		'''Callback for left-clicks.'''
 		num = self.get_screen()
 
 		if 0 <= num <= len(self.desktop):
@@ -184,6 +214,7 @@ class nap:
 
 
 	def switch_desktop(self, num):
+		'''Sets the active desktop to num.'''
 		win = self.root
 		ctype = self.display.intern_atom("_NET_CURRENT_DESKTOP")
 		data = [num]
@@ -193,7 +224,7 @@ class nap:
 
 
 	def send_event(self, win, ctype, data, mask=None):
-		""" Send a ClientMessage event to the root """
+		'''Sends a ClientMessage event to the root window.'''
 		data = (data+[0]*(5-len(data)))[:5]
 		ev = Xlib.protocol.event.ClientMessage(window=win, client_type=ctype, data=(32,(data)))
 
@@ -202,16 +233,33 @@ class nap:
 		self.root.send_event(ev, event_mask=mask)
 
 
+	def desktop_callback(self, widget, data=None):
+		'''Callback for the menu's desktop selector.'''
+		if widget.get_active():
+			self.switch_desktop(data)
 
-	def right(self, status_icon, button, activate_time):
+	def get_menu_about(self):
+		'''Returns a menu for the right-click action.'''
 		menu = gtk.Menu()
 
-
+		submenu = gtk.Menu()
+		group = None
+		i = 0
 		for desktop in self.get_desktop_names():
-			submenu = gtk.Menu()
-			item = gtk.MenuItem(desktop)
-			item.set_submenu(submenu)
-			menu.add(item)
+			item = gtk.RadioMenuItem(group, desktop)
+
+			if group == None:
+				item.set_active(True)
+
+			group = item
+			item.connect("toggled", self.desktop_callback, i)
+			i = i+1
+			submenu.add(item)
+
+		item = gtk.MenuItem("Desktops")
+		item.set_submenu(submenu)
+		menu.add(item)
+
 
 		sep = gtk.SeparatorMenuItem()
 		menu.add(sep)
@@ -220,20 +268,39 @@ class nap:
 		item.connect("activate", self.about)
 		menu.add(item)
 
-		item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
-		item.connect("activate", gtk.main_quit)
-		menu.add(item)
+		#item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
+		#item.connect("activate", gtk.main_quit)
+		#menu.add(item)
 
+		self.menu = menu
 		menu.show_all()
+		return menu
 
-		menu.popup(None, None, gtk.status_icon_position_menu, 1, activate_time, self.icon)
+
+
+	def right(self, status_icon, button, activate_time):
+		'''Callback for right-clicks.'''
+		if self.menu_about == None:
+			self.menu_about = self.get_menu_about()
+
+		self.menu_about.popup(None, None, gtk.status_icon_position_menu, 1, activate_time, self.icon)
+
 
 	def about(self, menu_item):
-		print self.icon.get_geometry()
-		window = gtk.Window(gtk.WINDOW_TOPLEVEL)
-		window.set_size_request(200, 100)
-		window.set_title("About")
-		window.show()
+		'''Shows an about dialog.'''
+		about = gtk.AboutDialog()
+
+		about.set_name(self.name)
+		about.set_version(self.version)
+		about.set_authors(self.author)
+		about.set_comments("notification area / systray pager")
+		about.set_copyright("Copyright (c) 2010 Philip Busch")
+		about.set_website(self.website)
+		about.set_logo(self.pixbuf)
+		about.set_program_name(self.name)
+		about.run()
+		about.hide()
+
 
 	def set_padding(self, padding):
 		self.padding = padding
@@ -246,6 +313,9 @@ class nap:
 
 	def set_color_highlight(self, color):
 		self.color_highlight = color
+
+	def set_color_background(self, color):
+		self.color_background = color
 
 	def set_rows(self, rows):
 		self.rows = rows
@@ -266,6 +336,7 @@ if __name__ == '__main__':
 	nap.set_spacing(spacing)
 	nap.set_color_normal(color_normal)
 	nap.set_color_highlight(color_highlight)
+	nap.set_color_background(color_background)
 	nap.set_rows(rows)
 	nap.set_cols(cols)
 
