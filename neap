@@ -43,8 +43,8 @@ color_normal = '#333333'
 # highlight color (the active desktop)
 color_highlight = '#999999'
 
-# background color
-color_background = '#111111'
+# background color ("transparent" for transparent background)
+color_background = 'transparent'
 
 # number of rows in desktop grid
 rows = 2
@@ -181,6 +181,7 @@ class nap:
 		#-------------------------
 
 		self.pixbuf.get_from_drawable(pixmap, map, 0, 0, 0, 0, w, h)
+		self.pixbuf = self.pixbuf.add_alpha(True, 0x23, 0x57, 0xbd)
 		self.icon.set_from_pixbuf(self.pixbuf)
 
 
@@ -315,6 +316,9 @@ class nap:
 		self.color_highlight = color
 
 	def set_color_background(self, color):
+		if color == "transparent":
+			color = '#2357bd'
+
 		self.color_background = color
 
 	def set_rows(self, rows):
