@@ -29,6 +29,7 @@ import gtk
 import gobject
 from Xlib import X, display, error, Xatom, Xutil
 import Xlib.protocol.event
+from optparse import OptionParser
 
 
 # number of pixels between outer border and the actual grid
@@ -38,10 +39,10 @@ padding = 2
 spacing = 1
 
 # foreground color (inactive desktops)
-color_normal = '#333333'
+color_inactive = '#333333'
 
 # highlight color (the active desktop)
-color_highlight = '#999999'
+color_active = '#999999'
 
 # background color ("transparent" for transparent background)
 color_background = 'transparent'
@@ -50,7 +51,7 @@ color_background = 'transparent'
 rows = 2
 
 # number of columns in desktop grid
-cols = 3
+columns = 3
 
 
 class nap:
@@ -65,11 +66,11 @@ class nap:
 		# default config
 		self.padding = 3
 		self.spacing = 1
-		self.color_normal = "green"
-		self.color_highlight = "red"
+		self.color_active = "red"
+		self.color_inactive = "green"
 		self.color_background = "yellow"
 		self.rows = 2
-		self.cols = 3
+		self.columns = 3
 		self.grid = []
 
 		# menus
@@ -128,10 +129,10 @@ class nap:
 		'''Updates internal grid structure.'''
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
 
-		n = max(self.rows, self.cols)
-		c = (w - 2 * self.padding - (n - 1) * self.spacing) / self.cols
+		n = max(self.rows, self.columns)
+		c = (w - 2 * self.padding - (n - 1) * self.spacing) / self.columns
 
-		grid_width = self.cols * c + (self.cols - 1) * self.spacing
+		grid_width = self.columns * c + (self.columns - 1) * self.spacing
 		grid_height = self.rows * c + (self.rows - 1) * self.spacing
 
 		off_x = (w - 2*self.padding - grid_width) / 2
@@ -139,11 +140,11 @@ class nap:
 
 		grid = []
 		for i in range(self.rows):
-			for j in range(self.cols):
+			for j in range(self.columns):
 				x = off_x + self.padding + j*(c + self.spacing)
 				y = off_y + self.padding + i*(c + self.spacing)
 
-				if i * self.rows + j < len(self.desktop) - 1:
+				if i * self.columns + j < len(self.desktop) :
 					grid.append((x, y, c, c))
 
 		self.grid = grid
@@ -154,25 +155,25 @@ class nap:
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
 
 		map = gtk.gdk.Colormap(gtk.gdk.visual_get_best(), False)
-		color_normal = map.alloc_color(self.color_normal)
-		color_high   = map.alloc_color(self.color_highlight)
-		color_back   = map.alloc_color(self.color_background)
+		color_active       = map.alloc_color(self.color_active)
+		color_inactive     = map.alloc_color(self.color_inactive)
+		color_background   = map.alloc_color(self.color_background)
 
 		pixmap = gtk.gdk.Pixmap(None, w, h, 32)
 		gc = pixmap.new_gc()
 
 		#---ACTUAL DRAWING CODE---
-		gc.set_foreground(color_back)
+		gc.set_foreground(color_background)
 		pixmap.draw_rectangle(gc, True, 0, 0, w, h)
 
-		gc.set_foreground(color_normal)
+		gc.set_foreground(color_inactive)
 
 		i = 0
 		for cell in self.grid:
 			if(i == active):
-				gc.set_foreground(color_high)
+				gc.set_foreground(color_active)
 			else:
-				gc.set_foreground(color_normal)
+				gc.set_foreground(color_inactive)
 
 			i = i + 1
 
@@ -304,16 +305,16 @@ class nap:
 
 
 	def set_padding(self, padding):
-		self.padding = padding
+		self.padding = int(padding)
 
 	def set_spacing(self, spacing):
-		self.spacing = spacing
+		self.spacing = int(spacing)
 
-	def set_color_normal(self, color):
-		self.color_normal = color
+	def set_color_inactive(self, color):
+		self.color_inactive = color
 
-	def set_color_highlight(self, color):
-		self.color_highlight = color
+	def set_color_active(self, color):
+		self.color_active = color
 
 	def set_color_background(self, color):
 		if color == "transparent":
@@ -322,10 +323,10 @@ class nap:
 		self.color_background = color
 
 	def set_rows(self, rows):
-		self.rows = rows
+		self.rows = int(rows)
 
-	def set_cols(self, cols):
-		self.cols = cols
+	def set_columns(self, columns):
+		self.columns = int(columns)
 
 	def main(self):
 		num = self.get_current_desktop()
@@ -334,15 +335,69 @@ class nap:
 
 
 if __name__ == '__main__':
+	parser = OptionParser()
+
+	parser.add_option("-p", "--padding", dest="padding",
+			  help="number of pixels between outer edge and grid",
+			  metavar="N")
+
+	parser.add_option("-s", "--spacing", dest="spacing",
+			  help="number of pixels between rows/cols in the grid",
+			  metavar="N")
+
+	parser.add_option("-a", "--active-color", dest="color_active",
+			  help="color of active desktop",
+			  metavar="C")
+
+	parser.add_option("-i", "--inactive-color", dest="color_inactive",
+			  help="color of inactive desktop(s)",
+			  metavar="C")
+
+	parser.add_option("-b", "--background-color", dest="color_background",
+			  help="background color",
+			  metavar="C")
+
+	parser.add_option("-r", "--rows", dest="rows",
+			  help="number of grid rows",
+			  metavar="N")
+
+	parser.add_option("-c", "--columns", dest="columns",
+			  help="number of grid columns",
+			  metavar="N")
+
+	(opts, args) = parser.parse_args()
+
+	if opts.padding == None:
+		opts.padding = padding
+
+	if opts.spacing == None:
+		opts.spacing = spacing
+
+	if opts.color_active == None:
+		opts.color_active = color_active
+
+	if opts.color_inactive == None:
+		opts.color_inactive = color_inactive
+
+	if opts.color_background == None:
+		opts.color_background = color_background
+
+	if opts.rows == None:
+		opts.rows = rows
+
+	if opts.columns == None:
+		opts.columns = columns
+
+
 	nap = nap()
 
-	nap.set_padding(padding)
-	nap.set_spacing(spacing)
-	nap.set_color_normal(color_normal)
-	nap.set_color_highlight(color_highlight)
-	nap.set_color_background(color_background)
-	nap.set_rows(rows)
-	nap.set_cols(cols)
+	nap.set_padding(opts.padding)
+	nap.set_spacing(opts.spacing)
+	nap.set_color_active(opts.color_active)
+	nap.set_color_inactive(opts.color_inactive)
+	nap.set_color_background(opts.color_background)
+	nap.set_rows(opts.rows)
+	nap.set_columns(opts.columns)
 
 	nap.main()
 

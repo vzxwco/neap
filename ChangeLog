@@ -1,3 +1,7 @@
+2010-03-12
+- added command line option parser
+- minor bug fixes (off-by-one in grid layout)
+
 2010-03-11
 - added support for transparent background 
 
