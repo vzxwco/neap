@@ -25,53 +25,39 @@
 #  POSSIBILITY OF SUCH DAMAGE.
 
 
+import sys
+import os
+from datetime import datetime
 import gtk
 import gobject
 from Xlib import X, display, error, Xatom, Xutil
 import Xlib.protocol.event
 from optparse import OptionParser
 
+name = "neap"
+version = "0.3.1"
+author = ["Philip Busch <philip@0xe3.com>"]
+website = "http://code.google.com/p/neap/"
 
-# number of pixels between outer border and the actual grid
-padding = 2
-
-# number of pixels between grid boxes
-spacing = 1
-
-# foreground color (inactive desktops)
-color_inactive = '#333333'
-
-# highlight color (the active desktop)
-color_active = '#999999'
-
-# background color ("transparent" for transparent background)
-color_background = 'transparent'
-
-# number of rows in desktop grid
-rows = 2
-
-# number of columns in desktop grid
-columns = 3
-
-
-class nap:
+class neap:
 	def __init__(self):
 		'''Initialization.'''
 		# program info
-		self.name = "neap"
-		self.version = "0.2"
-		self.author = ["Philip Busch <philip@0xe3.com>"]
-		self.website = "http://code.google.com/p/neap/"
+		self.name = name
+		self.version = version
+		self.author = author
+		self.website = website
 
 		# default config
-		self.padding = 3
-		self.spacing = 1
-		self.color_active = "red"
-		self.color_inactive = "green"
-		self.color_background = "yellow"
-		self.rows = 2
-		self.columns = 3
-		self.grid = []
+		self.conf = {}
+		self.conf['padding'] = 3
+		self.conf['spacing'] = 1
+		self.conf['color_active'] = "red"
+		self.conf['color_inactive'] = "green"
+		self.conf['color_background'] = "yellow"
+		self.conf['rows'] = 2
+		self.conf['columns'] = 3
+		grid = []
 
 		# menus
 		self.menu_about = None
@@ -128,26 +114,31 @@ class nap:
 	def update_grid(self):
 		'''Updates internal grid structure.'''
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
+		rows = self.conf['rows']
+		cols = self.conf['columns']
+		padding = self.conf['padding']
+		spacing = self.conf['spacing']
 
-		n = max(self.rows, self.columns)
-		c = (w - 2 * self.padding - (n - 1) * self.spacing) / self.columns
+		n = max(rows, cols)
+		c = (w - 2 * padding - (n - 1) * spacing) / cols
 
-		grid_width = self.columns * c + (self.columns - 1) * self.spacing
-		grid_height = self.rows * c + (self.rows - 1) * self.spacing
+		grid_width = cols * c + (cols - 1) * spacing
+		grid_height = rows * c + (rows - 1) * spacing
 
-		off_x = (w - 2*self.padding - grid_width) / 2
-		off_y = (h - 2*self.padding - grid_height) / 2
+		off_x = (w - 2*padding - grid_width) / 2
+		off_y = (h - 2*padding - grid_height) / 2
 
 		grid = []
-		for i in range(self.rows):
-			for j in range(self.columns):
-				x = off_x + self.padding + j*(c + self.spacing)
-				y = off_y + self.padding + i*(c + self.spacing)
+		for i in range(rows):
+			for j in range(cols):
+				x = off_x + padding + j*(c + spacing)
+				y = off_y + padding + i*(c + spacing)
 
-				if i * self.columns + j < len(self.desktop) :
+				if i * cols + j < len(self.desktop) :
 					grid.append((x, y, c, c))
 
 		self.grid = grid
+
 
 	def update_pixbuf(self, active = -1):
 		'''Updates internal icon pixbuf.'''
@@ -155,9 +146,9 @@ class nap:
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
 
 		map = gtk.gdk.Colormap(gtk.gdk.visual_get_best(), False)
-		color_active       = map.alloc_color(self.color_active)
-		color_inactive     = map.alloc_color(self.color_inactive)
-		color_background   = map.alloc_color(self.color_background)
+		color_active       = map.alloc_color(self.conf['color_active'])
+		color_inactive     = map.alloc_color(self.conf['color_inactive'])
+		color_background   = map.alloc_color(self.conf['color_background'])
 
 		pixmap = gtk.gdk.Pixmap(None, w, h, 32)
 		gc = pixmap.new_gc()
@@ -182,7 +173,7 @@ class nap:
 		#-------------------------
 
 		self.pixbuf.get_from_drawable(pixmap, map, 0, 0, 0, 0, w, h)
-		self.pixbuf = self.pixbuf.add_alpha(True, 0x23, 0x57, 0xbd)
+		self.pixbuf = self.pixbuf.add_alpha(True, chr(0x23), chr(0x57), chr(0xbd))
 		self.icon.set_from_pixbuf(self.pixbuf)
 
 
@@ -304,34 +295,74 @@ class nap:
 		about.hide()
 
 
-	def set_padding(self, padding):
-		self.padding = int(padding)
+	def read_configfile(self, path):
+		'''Reads config file from path.'''
+		try:
+			f = open(path, "r")
+		except IOError as (errno, strerror):
+			print "{0}: {1}: {2}".format(self.name, path, strerror)
+			return -1
 
-	def set_spacing(self, spacing):
-		self.spacing = int(spacing)
+		lineno = 0
+		conf = {}
 
-	def set_color_inactive(self, color):
-		self.color_inactive = color
+		for line in f:
+			lineno += 1
 
-	def set_color_active(self, color):
-		self.color_active = color
+			# remove comments
+			line = line.split(";", 1)[0].strip()
 
-	def set_color_background(self, color):
-		if color == "transparent":
-			color = '#2357bd'
+			# check syntax
+			if len(line) == 0: continue
+			if line.find("=") == -1:
+				print "{0}: {1}: line {2}: syntax error".format(self.name, path, lineno)
+				return -1
+			
+			# read
+			key, val = line.split("=", 1)
+			key = key.strip()
+			val = val.strip()
 
-		self.color_background = color
+			# check semantics
+			if self.set(key, val) < 0:
+				print "{0}: {1}: line {2}: illegal identifier \"{3}\"".format(self.name, path, lineno, key)
+				return -1
 
-	def set_rows(self, rows):
-		self.rows = int(rows)
+		return 0
 
-	def set_columns(self, columns):
-		self.columns = int(columns)
+
+	def set(self, key, val):
+		'''Sets config variable key to val.'''
+		if val == None:
+			return 1
+
+		try:
+			val = int(val)
+		except ValueError:
+			pass
+
+		if val == 'transparent':
+			val = '#2357bd'
+
+		if key not in self.conf.keys():
+			return -1
+
+		self.conf[key] = val
+
+		return 0
+
+
+	def get(self, key):
+		'''Returns the value of config variable key.'''
+		return self.conf[key]
+
 
 	def main(self):
+		'''Starts the main GTK loop.'''
 		num = self.get_current_desktop()
 		self.update_pixbuf(num)
 		gtk.main()
+
 
 
 if __name__ == '__main__':
@@ -367,39 +398,53 @@ if __name__ == '__main__':
 
 	(opts, args) = parser.parse_args()
 
-	if opts.padding == None:
-		opts.padding = padding
 
-	if opts.spacing == None:
-		opts.spacing = spacing
+	cfile = os.path.expanduser('~/.neaprc')
+	if not os.path.exists(cfile):
+		try:
+			f = open(cfile, 'w')
+			f.write(""";{0} v{1} config file generated {2}
 
-	if opts.color_active == None:
-		opts.color_active = color_active
+;number of pixels between outer border and the actual grid
+padding = 2
 
-	if opts.color_inactive == None:
-		opts.color_inactive = color_inactive
+;number of pixels between grid boxes
+spacing = 1
 
-	if opts.color_background == None:
-		opts.color_background = color_background
+;foreground color (inactive desktops)
+color_inactive = #333333
 
-	if opts.rows == None:
-		opts.rows = rows
+;highlight color (the active desktop)
+color_active = #999999
 
-	if opts.columns == None:
-		opts.columns = columns
+;background color ("transparent" for transparent background)
+color_background = transparent
 
+;number of rows in desktop grid
+rows = 2
 
-	nap = nap()
+;number of columns in desktop grid
+columns = 2
+""".format(name, version, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+			f.close()
+		except IOError as (errno, strerror):
+			print "{0}: {1}: {2}".format(name, cfile, strerror)
+			sys.exit(-1)
 
-	nap.set_padding(opts.padding)
-	nap.set_spacing(opts.spacing)
-	nap.set_color_active(opts.color_active)
-	nap.set_color_inactive(opts.color_inactive)
-	nap.set_color_background(opts.color_background)
-	nap.set_rows(opts.rows)
-	nap.set_columns(opts.columns)
+	neap = neap()
 
-	nap.main()
+	if neap.read_configfile(cfile) < 0:
+		sys.exit(-1)
+
+	neap.set('padding', opts.padding)
+	neap.set('spacing', opts.spacing)
+	neap.set('color_active', opts.color_active)
+	neap.set('color_inactive', opts.color_inactive)
+	neap.set('color_background', opts.color_background)
+	neap.set('rows', opts.rows)
+	neap.set('columns', opts.columns)
+
+	neap.main()
 
 
 
