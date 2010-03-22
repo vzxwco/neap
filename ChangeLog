@@ -1,6 +1,7 @@
 2010-03-22
 - added config file support
 - TODO: support for ~/.config/ dir
+- minor source documentation improvements
 
 2010-03-14
 - fixed call to gtk.gdk.Pixbuf.add_alpha to pass chars
