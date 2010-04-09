@@ -1,28 +1,7 @@
 #!/usr/bin/env python
 
 #  Copyright (c) 2010, Philip Busch <philip@0xe3.com>
-#  All rights reserved.
-#
-#  Redistribution and use in source and binary forms, with or without
-#  modification, are permitted provided that the following conditions are met:
-#
-#   - Redistributions of source code must retain the above copyright notice,
-#     this list of conditions and the following disclaimer.
-#   - Redistributions in binary form must reproduce the above copyright
-#     notice, this list of conditions and the following disclaimer in the
-#     documentation and/or other materials provided with the distribution.
-#
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-#  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-#  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-#  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-#  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-#  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-#  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-#  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-#  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-#  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-#  POSSIBILITY OF SUCH DAMAGE.
+#  See License.txt for details.
 
 
 import sys
@@ -35,7 +14,7 @@ import Xlib.protocol.event
 from optparse import OptionParser
 
 name = "neap"
-version = "0.3.1"
+version = "0.4.1"
 author = ["Philip Busch <philip@0xe3.com>"]
 website = "http://code.google.com/p/neap/"
 
@@ -85,13 +64,16 @@ class neap:
 		'''Returns a list of tasks for desktop num.'''
 		return self.root.get_full_property(self.display.intern_atom("_NET_CLIENT_LIST"), Xatom.WINDOW).value
 
+
 	def get_current_desktop(self):
 		'''Returns the index of the currently active desktop.'''
 		return self.root.get_full_property(self.display.intern_atom("_NET_CURRENT_DESKTOP"), 0).value[0]
 
+
 	def get_desktop_count(self):
 		'''Returns the current number of desktops.'''
 		return self.root.get_full_property(self.display.intern_atom("_NET_NUMBER_OF_DESKTOPS"), 0).value[0]
+
 
 	def get_desktop_names(self):
 		'''Returns a list containing desktop names.'''
@@ -231,6 +213,7 @@ class neap:
 		if widget.get_active():
 			self.switch_desktop(data)
 
+
 	def get_menu_about(self):
 		'''Returns a menu for the right-click action.'''
 		menu = gtk.Menu()
@@ -270,7 +253,6 @@ class neap:
 		return menu
 
 
-
 	def right(self, status_icon, button, activate_time):
 		'''Callback for right-clicks.'''
 		if self.menu_about == None:
@@ -293,6 +275,25 @@ class neap:
 		about.set_program_name(self.name)
 		about.run()
 		about.hide()
+
+
+	def write_configfile(self):
+		'''Creates config file.'''
+
+		home = os.path.expanduser('~')
+		tmp = os.path.join(home, ".config/")
+		if os.path.exists(tmp):
+			basedir = os.path.join(tmp, "neap")
+			if not os.path.exists(basedir):
+				if os.mkdir(basedir, 0755) < 0:
+					print "{0}: cannot create directory {1}".format(self.name, basedir)
+					return -1
+		else:
+			basedir = home
+
+		print "now: {0}".format(basedir)
+		
+		return 0
 
 
 	def read_configfile(self, path):
