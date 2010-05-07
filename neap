@@ -45,6 +45,13 @@ class neap:
 		self.screen  = self.display.screen()
 		self.root    = self.screen.root 
 
+		# notify about and handle workspace switches
+		screen = gtk.gdk.screen_get_default()
+		root = screen.get_root_window()
+		root.set_events(gtk.gdk.SUBSTRUCTURE_MASK)
+		root.add_filter(self.event_filter)
+		
+
 		self.desktop = self.get_desktop_names()
 
 		self.pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, 20, 20)
@@ -59,6 +66,13 @@ class neap:
 
 		self.get_desktop_tasks(0)
 
+
+	def event_filter(event, user_data):
+		'''Handles incoming gtk.gdk.Events.'''
+		# we only registered for SUBSTRUCTURE_MASK events, so
+		# we just update the pixbuf
+		neap.update_pixbuf(neap.get_current_desktop())
+		return gtk.gdk.FILTER_CONTINUE
 
 	def get_desktop_tasks(self, num):
 		'''Returns a list of tasks for desktop num.'''
