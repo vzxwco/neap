@@ -14,7 +14,7 @@ import Xlib.protocol.event
 from optparse import OptionParser
 
 name = "neap"
-version = "0.4.1"
+version = "0.5.1"
 author = ["Philip Busch <philip@0xe3.com>"]
 website = "http://code.google.com/p/neap/"
 
@@ -63,6 +63,7 @@ class neap:
 
 		self.icon.connect("activate", self.left)
 		self.icon.connect("popup-menu", self.right)
+		self.icon.connect("scroll-event", self.scroll)
 
 		self.get_desktop_tasks(0)
 
@@ -86,6 +87,13 @@ class neap:
 
 	def get_desktop_count(self):
 		'''Returns the current number of desktops.'''
+		#FIXME: remove debugging stuff
+		layout = self.root.get_full_property(self.display.intern_atom("_NET_NUMBER_OF_DESKTOPS"), 0)
+		print layout.value[0]
+
+#		layout = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_LAYOUT"), 0)
+#		print layout.value[1]
+
 		return self.root.get_full_property(self.display.intern_atom("_NET_NUMBER_OF_DESKTOPS"), 0).value[0]
 
 
@@ -201,6 +209,15 @@ class neap:
 			self.update_pixbuf(num)
 			gobject.idle_add(self.switch_desktop, num)
 
+	def scroll(self, status_icon, event):
+		if event.direction == gtk.gdk.SCROLL_UP:
+			target = self.get_current_desktop() - 1
+		elif event.direction == gtk.gdk.SCROLL_DOWN:
+			target = self.get_current_desktop() + 1
+		else:
+			return
+
+		self.switch_desktop(target % self.get_desktop_count())
 
 	def switch_desktop(self, num):
 		'''Sets the active desktop to num.'''

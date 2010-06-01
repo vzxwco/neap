@@ -1,3 +1,6 @@
+2010-06-01
+- added scroll wheel support to switch between desktops. Thanks Stephan!
+
 2010-05-07
 - added support for non-neap-induced workspace switches, see issue #2
 
