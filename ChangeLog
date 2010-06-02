@@ -1,3 +1,7 @@
+2010-06-02
+- desktop layout handling completely rewritten
+- now dynamically adjusting to changes in the number or layout of workspaces
+
 2010-06-01
 - added scroll wheel support to switch between desktops. Thanks Stephan!
 

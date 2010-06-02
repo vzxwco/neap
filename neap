@@ -6,6 +6,7 @@
 
 import sys
 import os
+import math
 from datetime import datetime
 import gtk
 import gobject
@@ -14,7 +15,7 @@ import Xlib.protocol.event
 from optparse import OptionParser
 
 name = "neap"
-version = "0.5.1"
+version = "0.5.2"
 author = ["Philip Busch <philip@0xe3.com>"]
 website = "http://code.google.com/p/neap/"
 
@@ -34,13 +35,11 @@ class neap:
 		self.conf['color_active'] = "red"
 		self.conf['color_inactive'] = "green"
 		self.conf['color_background'] = "yellow"
-		self.conf['rows'] = 2
-		self.conf['columns'] = 3
+		self.conf['rows'] = 0
+		self.conf['columns'] = 0
 		grid = []
 
-		# menus
-		self.menu_about = None
-
+		# X stuff
 		self.display = display.Display()
 		self.screen  = self.display.screen()
 		self.root    = self.screen.root 
@@ -52,20 +51,12 @@ class neap:
 		root.add_filter(self.event_filter)
 		
 
-		self.desktop = self.get_desktop_names()
-
 		self.pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, 20, 20)
-		self.pixbuf.fill(0xffffffff)
-
 		self.icon = gtk.StatusIcon()
-		self.icon.set_from_pixbuf(self.pixbuf)
-		self.update_pixbuf(self.get_current_desktop())
-
 		self.icon.connect("activate", self.left)
 		self.icon.connect("popup-menu", self.right)
 		self.icon.connect("scroll-event", self.scroll)
 
-		self.get_desktop_tasks(0)
 
 
 	def event_filter(event, user_data):
@@ -85,15 +76,32 @@ class neap:
 		return self.root.get_full_property(self.display.intern_atom("_NET_CURRENT_DESKTOP"), 0).value[0]
 
 
+	def get_desktop_layout(self):
+		'''Returns a tupel containing the number of rows and cols.'''
+		grid = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_LAYOUT"), 0)
+
+		rows = 0;
+		cols = 0;
+
+		# if .neaprc config variables are set, enforce them:
+		if self.conf['rows'] > 0 and self.conf['columns'] > 0:
+			rows = self.conf['rows']
+			cols = self.conf['columns']
+		# else if _NET_DESKTOP_LAYOUT has sane values, use them:
+		elif grid != None and grid.value[2] > 1 and grid.value[1] > 1:
+			rows = grid.value[2]
+			cols = grid.value[1]
+		# else compute nice defaults:
+		else:
+			count = self.get_desktop_count()
+			rows = round(math.sqrt(count))
+			cols = math.ceil(math.sqrt(count))
+		
+		return (int(rows), int(cols))
+
+
 	def get_desktop_count(self):
 		'''Returns the current number of desktops.'''
-		#FIXME: remove debugging stuff
-		layout = self.root.get_full_property(self.display.intern_atom("_NET_NUMBER_OF_DESKTOPS"), 0)
-		print layout.value[0]
-
-#		layout = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_LAYOUT"), 0)
-#		print layout.value[1]
-
 		return self.root.get_full_property(self.display.intern_atom("_NET_NUMBER_OF_DESKTOPS"), 0).value[0]
 
 
@@ -101,8 +109,10 @@ class neap:
 		'''Returns a list containing desktop names.'''
 		count = self.get_desktop_count()
 		names = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_NAMES"), 0)  
+
 		if hasattr(names, "value"):
-			names = names.value.strip("\x00").split("\x00")
+			count = self.get_desktop_count()
+			names = names.value.strip("\x00").split("\x00")[:count]
 		else:
 			names = []
 			for i in range(count):
@@ -118,8 +128,8 @@ class neap:
 	def update_grid(self):
 		'''Updates internal grid structure.'''
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
-		rows = self.conf['rows']
-		cols = self.conf['columns']
+		rows, cols = self.get_desktop_layout()
+		count = self.get_desktop_count()
 		padding = self.conf['padding']
 		spacing = self.conf['spacing']
 
@@ -138,7 +148,7 @@ class neap:
 				x = off_x + padding + j*(c + spacing)
 				y = off_y + padding + i*(c + spacing)
 
-				if i * cols + j < len(self.desktop) :
+				if i * cols + j < count :
 					grid.append((x, y, c, c))
 
 		self.grid = grid
@@ -205,11 +215,13 @@ class neap:
 		'''Callback for left-clicks.'''
 		num = self.get_screen()
 
-		if 0 <= num <= len(self.desktop):
+		if 0 <= num <= self.get_desktop_count():
 			self.update_pixbuf(num)
 			gobject.idle_add(self.switch_desktop, num)
 
+
 	def scroll(self, status_icon, event):
+		'''Callback for scroll wheel actions.'''
 		if event.direction == gtk.gdk.SCROLL_UP:
 			target = self.get_current_desktop() - 1
 		elif event.direction == gtk.gdk.SCROLL_DOWN:
@@ -218,6 +230,7 @@ class neap:
 			return
 
 		self.switch_desktop(target % self.get_desktop_count())
+
 
 	def switch_desktop(self, num):
 		'''Sets the active desktop to num.'''
@@ -255,10 +268,11 @@ class neap:
 		for desktop in self.get_desktop_names():
 			item = gtk.RadioMenuItem(group, desktop)
 
-			if group == None:
+			group = item
+
+			if i == self.get_current_desktop():
 				item.set_active(True)
 
-			group = item
 			item.connect("toggled", self.desktop_callback, i)
 			i = i+1
 			submenu.add(item)
@@ -286,10 +300,7 @@ class neap:
 
 	def right(self, status_icon, button, activate_time):
 		'''Callback for right-clicks.'''
-		if self.menu_about == None:
-			self.menu_about = self.get_menu_about()
-
-		self.menu_about.popup(None, None, gtk.status_icon_position_menu, 1, activate_time, self.icon)
+		self.get_menu_about().popup(None, None, gtk.status_icon_position_menu, 1, activate_time, self.icon)
 
 
 	def about(self, menu_item):
@@ -453,10 +464,10 @@ color_active = #999999
 color_background = transparent
 
 ;number of rows in desktop grid
-rows = 2
+rows = 0
 
 ;number of columns in desktop grid
-columns = 2
+columns = 0
 """.format(name, version, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 			f.close()
 		except IOError as (errno, strerror):
