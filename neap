@@ -1,32 +1,58 @@
 #!/usr/bin/env python
-
-#  Copyright (c) 2010, Philip Busch <philip@0xe3.com>
-#  See License.txt for details.
-
+"""
+Copyright (c) 2010, Philip Busch <philip@0xe3.com>
+See License.txt for details.
+"""
 
 import sys
 import os
 import math
 from datetime import datetime
+from optparse import OptionParser
+
 import gtk
 import gobject
 from Xlib import X, display, error, Xatom, Xutil
 import Xlib.protocol.event
-from optparse import OptionParser
 
-name = "neap"
-version = "0.5.2"
-author = ["Philip Busch <philip@0xe3.com>"]
-website = "http://code.google.com/p/neap/"
+__appname__ = "neap"
+__author__  = ["Philip Busch <philip@0xe3.com>"]
+__version__ = "0.5.2"
+__license__ = "BSD"
+__website__ = "http://code.google.com/p/neap/"
 
-class neap:
+DEFAULT_CONFIG = """;{0} v{1} config file generated {2}
+
+;number of pixels between outer border and the actual grid
+padding = 2
+
+;number of pixels between grid boxes
+spacing = 1
+
+;foreground color (inactive desktops)
+color_inactive = #333333
+
+;highlight color (the active desktop)
+color_active = #999999
+
+;background color ("transparent" for transparent background)
+color_background = transparent
+
+;number of rows in desktop grid
+rows = 0
+
+;number of columns in desktop grid
+columns = 0
+"""
+
+class Neap(object):
 	def __init__(self):
 		'''Initialization.'''
 		# program info
-		self.name = name
-		self.version = version
-		self.author = author
-		self.website = website
+		self.name = __appname__
+		self.version = __version__
+		self.author = __author__
+		self.website = __website__
 
 		# default config
 		self.conf = {}
@@ -37,19 +63,18 @@ class neap:
 		self.conf['color_background'] = "yellow"
 		self.conf['rows'] = 0
 		self.conf['columns'] = 0
-		grid = []
+		self.grid = []
 
 		# X stuff
 		self.display = display.Display()
 		self.screen  = self.display.screen()
-		self.root    = self.screen.root 
+		self.root    = self.screen.root
 
 		# notify about and handle workspace switches
 		screen = gtk.gdk.screen_get_default()
 		root = screen.get_root_window()
 		root.set_events(gtk.gdk.SUBSTRUCTURE_MASK)
 		root.add_filter(self.event_filter)
-		
 
 		self.pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8, 20, 20)
 		self.icon = gtk.StatusIcon()
@@ -58,12 +83,11 @@ class neap:
 		self.icon.connect("scroll-event", self.scroll)
 
 
-
-	def event_filter(event, user_data):
+	def event_filter(self, event, user_data=None):
 		'''Handles incoming gtk.gdk.Events.'''
 		# we only registered for SUBSTRUCTURE_MASK events, so
 		# we just update the pixbuf
-		neap.update_pixbuf(neap.get_current_desktop())
+		self.update_pixbuf(self.get_current_desktop())
 		return gtk.gdk.FILTER_CONTINUE
 
 	def get_desktop_tasks(self, num):
@@ -96,7 +120,7 @@ class neap:
 			count = self.get_desktop_count()
 			rows = round(math.sqrt(count))
 			cols = math.ceil(math.sqrt(count))
-		
+
 		return (int(rows), int(cols))
 
 
@@ -108,7 +132,7 @@ class neap:
 	def get_desktop_names(self):
 		'''Returns a list containing desktop names.'''
 		count = self.get_desktop_count()
-		names = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_NAMES"), 0)  
+		names = self.root.get_full_property(self.display.intern_atom("_NET_DESKTOP_NAMES"), 0)
 
 		if hasattr(names, "value"):
 			count = self.get_desktop_count()
@@ -116,11 +140,11 @@ class neap:
 		else:
 			names = []
 			for i in range(count):
-				names.append(str(i)) 
+				names.append(str(i))
 
 		if len(names) < count:
 			for i in range(len(names), count):
-				names.append(str(i))  
+				names.append(str(i))
 
 		return names
 
@@ -159,10 +183,10 @@ class neap:
 		self.update_grid()
 		w, h = self.pixbuf.get_width(), self.pixbuf.get_height()
 
-		map = gtk.gdk.Colormap(gtk.gdk.visual_get_best(), False)
-		color_active       = map.alloc_color(self.conf['color_active'])
-		color_inactive     = map.alloc_color(self.conf['color_inactive'])
-		color_background   = map.alloc_color(self.conf['color_background'])
+		colormap = gtk.gdk.Colormap(gtk.gdk.visual_get_best(), False)
+		color_active       = colormap.alloc_color(self.conf['color_active'])
+		color_inactive     = colormap.alloc_color(self.conf['color_inactive'])
+		color_background   = colormap.alloc_color(self.conf['color_background'])
 
 		pixmap = gtk.gdk.Pixmap(None, w, h, 32)
 		gc = pixmap.new_gc()
@@ -186,7 +210,7 @@ class neap:
 			pixmap.draw_rectangle(gc, True, x, y, size_x, size_y)
 		#-------------------------
 
-		self.pixbuf.get_from_drawable(pixmap, map, 0, 0, 0, 0, w, h)
+		self.pixbuf.get_from_drawable(pixmap, colormap, 0, 0, 0, 0, w, h)
 		self.pixbuf = self.pixbuf.add_alpha(True, chr(0x23), chr(0x57), chr(0xbd))
 		self.icon.set_from_pixbuf(self.pixbuf)
 
@@ -281,7 +305,6 @@ class neap:
 		item.set_submenu(submenu)
 		menu.add(item)
 
-
 		sep = gtk.SeparatorMenuItem()
 		menu.add(sep)
 
@@ -329,12 +352,12 @@ class neap:
 			if not os.path.exists(basedir):
 				if os.mkdir(basedir, 0755) < 0:
 					print "{0}: cannot create directory {1}".format(self.name, basedir)
-					return -1
+					return None
 		else:
 			basedir = home
 
 		print "now: {0}".format(basedir)
-		
+
 		return 0
 
 
@@ -344,7 +367,7 @@ class neap:
 			f = open(path, "r")
 		except IOError as (errno, strerror):
 			print "{0}: {1}: {2}".format(self.name, path, strerror)
-			return -1
+			return False
 
 		lineno = 0
 		conf = {}
@@ -360,7 +383,7 @@ class neap:
 			if line.find("=") == -1:
 				print "{0}: {1}: line {2}: syntax error".format(self.name, path, lineno)
 				return -1
-			
+
 			# read
 			key, val = line.split("=", 1)
 			key = key.strip()
@@ -371,7 +394,7 @@ class neap:
 				print "{0}: {1}: line {2}: illegal identifier \"{3}\"".format(self.name, path, lineno, key)
 				return -1
 
-		return 0
+		return True
 
 
 	def set(self, key, val):
@@ -446,37 +469,17 @@ if __name__ == '__main__':
 	if not os.path.exists(cfile):
 		try:
 			f = open(cfile, 'w')
-			f.write(""";{0} v{1} config file generated {2}
+			f.write(DEFAULT_CONFIG.format(__appname__, __version__, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
-;number of pixels between outer border and the actual grid
-padding = 2
-
-;number of pixels between grid boxes
-spacing = 1
-
-;foreground color (inactive desktops)
-color_inactive = #333333
-
-;highlight color (the active desktop)
-color_active = #999999
-
-;background color ("transparent" for transparent background)
-color_background = transparent
-
-;number of rows in desktop grid
-rows = 0
-
-;number of columns in desktop grid
-columns = 0
-""".format(name, version, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 			f.close()
 		except IOError as (errno, strerror):
-			print "{0}: {1}: {2}".format(name, cfile, strerror)
+			print "{0}: {1}: {2}".format(__appname__, cfile, strerror)
 			sys.exit(-1)
 
-	neap = neap()
+	neap = Neap()
 
-	if neap.read_configfile(cfile) < 0:
+	if not neap.read_configfile(cfile):
+		print "Unable to read config file"
 		sys.exit(-1)
 
 	neap.set('padding', opts.padding)
