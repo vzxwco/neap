@@ -1,3 +1,6 @@
+2010-06-04
+- many useful stylistic changes. Thanks Stephan!
+
 2010-06-02
 - desktop layout handling completely rewritten
 - now dynamically adjusting to changes in the number or layout of workspaces
