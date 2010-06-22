@@ -8,7 +8,9 @@ See License.txt for details.
 
 import sys
 import os
+import re
 import math
+import ConfigParser
 from datetime import datetime
 from optparse import OptionParser
 
@@ -25,6 +27,7 @@ __website__ = 'http://code.google.com/p/neap/'
 
 DEFAULT_CONFIG = \
     """;{0} v{1} config file generated {2}
+[neap]
 
 ;number of pixels between outer border and the actual grid
 padding = 2
@@ -380,50 +383,42 @@ class Neap(object):
 
         return 0
 
-    def read_configfile(self, path):
+    def read_configfiles(self, paths):
         '''Reads config file from path.'''
 
-        try:
-            f = open(path, 'r')
-        except IOError, (errno, strerror):
-            print '{0}: {1}: {2}'.format(self.name, path, strerror)
-            return False
+        for file in paths:
+            parser = ConfigParser.RawConfigParser()
+            parser.read(os.path.expanduser(file))
 
-        lineno = 0
-        conf = {}
-
-        for line in f:
-            lineno += 1
-
-            # remove comments
-            line = line.split(';', 1)[0].strip()
-
-            # check syntax
-            if len(line) == 0:
-                continue
-            if line.find('=') == -1:
-                print '{0}: {1}: line {2}: syntax error'.format(self.name,
-                        path, lineno)
-                return -1
-
-            # read
-            (key, val) = line.split('=', 1)
-            key = key.strip()
-            val = val.strip()
-
-            # check semantics
-            if self.set(key, val) < 0:
-                print '{0}: {1}: line {2}: illegal identifier "{3}"'.format(self.name,
-                        path, lineno, key)
-                return -1
+            for key,val in parser.items('neap'):
+                if not self.set(key, val):
+                    print "{0}: {1}: {2} = {3}: invalid syntax".format(self.name, file, key, val)
+                    return False
 
         return True
 
-    def set(self, key, val):
+    def __setitem__(self, key, val):
         '''Sets config variable key to val.'''
 
+        self.set(key, val)
+
+    def __getitem__(self, key):
+        '''Returns the value of config variable key.'''
+
+        return self.conf[key]
+
+    def set(self, key, val):
+        '''Sets config variable key to val, including sanity-check.'''
+
+        # discard empty values
         if val == None:
-            return 1
+            return None
+
+        # is val a number, a hex color or the string "transparent"?
+        if not (val == "transparent" or
+                re.match("#[a-fA-F0-9]{6}", val) != None or
+                val.isdigit()):
+            return False
 
         try:
             val = int(val)
@@ -434,12 +429,13 @@ class Neap(object):
             val = '#2357bd'
 
         if key not in self.conf.keys():
-            return -1
+            return False
 
         self.conf[key] = val
 
-        return 0
+        return True
 
+    # Obsolete. Use __getitem__() or corresponding syntax instead.
     def get(self, key):
         '''Returns the value of config variable key.'''
 
@@ -496,17 +492,16 @@ if __name__ == '__main__':
 
     neap = Neap()
 
-    if not neap.read_configfile(cfile):
-        print 'Unable to read config file'
+    if not neap.read_configfiles([cfile]):
         sys.exit(-1)
 
-    neap.set('padding', opts.padding)
-    neap.set('spacing', opts.spacing)
-    neap.set('color_active', opts.color_active)
-    neap.set('color_inactive', opts.color_inactive)
-    neap.set('color_background', opts.color_background)
-    neap.set('rows', opts.rows)
-    neap.set('columns', opts.columns)
+    neap['padding'] = opts.padding
+    neap['spacing'] = opts.spacing
+    neap['color_active'] = opts.color_active
+    neap['color_inactive'] = opts.color_inactive
+    neap['color_background'] = opts.color_background
+    neap['rows'] = opts.rows
+    neap['columns'] = opts.columns
 
     neap.main()
 
