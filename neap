@@ -51,6 +51,211 @@ rows = 0
 columns = 0
 """
 
+class Pager:
+    '''Dummy pager, not intended to be used directly'''
+    
+    def __init__(self, conf, display, screen, root):
+        '''Initialization.'''
+        
+        self.conf = conf
+        self.display = display
+        self.screen = screen
+        self.root = root
+
+    def get_desktop_tasks(self, num):
+        '''Returns a list of tasks for desktop num.'''
+
+        return self.root.get_full_property(self.display.get_atom('_NET_CLIENT_LIST'), Xatom.WINDOW).value
+
+    def get_current_desktop(self):
+        '''Returns the index of the currently active desktop.'''
+        
+        return 0
+
+    def get_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols.'''
+        
+        return (1,1)
+
+    def get_desktop_count(self):
+        '''Returns the current number of desktops.'''
+
+        return 1
+
+    def get_desktop_names(self):
+        '''Returns a list containing desktop names.'''
+
+        return ['Desktop']
+
+    def switch_desktop(self, num):
+        '''Sets the active desktop to num.'''
+
+        pass
+
+    def send_event(self, win, ctype, data, mask=None):
+        '''Sends a ClientMessage event to the root window.'''
+
+        data = (data + [0] * (5 - len(data)))[:5]
+        ev = Xlib.protocol.event.ClientMessage(window=win,
+                client_type=ctype, data=(32, data))
+
+        if not mask:
+            mask = X.SubstructureRedirectMask | X.SubstructureNotifyMask
+        self.root.send_event(ev, event_mask=mask)
+
+
+class VirtualDesktopPager(Pager):
+    '''Virtual desktop / workspace -based pager. Should be used with most freedesktop-compliant window managers.'''
+    
+    def get_current_desktop(self):
+        '''Returns the index of the currently active desktop.'''
+
+        return self.root.get_full_property(self.display.get_atom('_NET_CURRENT_DESKTOP'), 0).value[0]
+
+    def get_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols.'''
+
+        grid = self.root.get_full_property(self.display.get_atom('_NET_DESKTOP_LAYOUT'), 0)
+
+        rows = 0
+        cols = 0
+
+        if self.conf['rows'] > 0 and self.conf['columns'] > 0:
+            # if .neaprc config variables are set, enforce them:
+            rows = self.conf['rows']
+            cols = self.conf['columns']
+            print "from conf:", rows, cols
+        elif grid != None and grid.value[2] > 1 and grid.value[1] > 1:
+            # else if _NET_DESKTOP_LAYOUT has sane values, use them:
+            rows = grid.value[2]
+            cols = grid.value[1]
+            print "grid:", rows, cols
+        else:
+            # else compute nice defaults:
+            count = self.get_desktop_count()
+            rows = round(math.sqrt(count))
+            cols = math.ceil(math.sqrt(count))
+            print "defaults:", rows, cols, grid
+
+        return (int(rows), int(cols))
+
+    def get_desktop_count(self):
+        '''Returns the current number of desktops.'''
+
+        return self.root.get_full_property(self.display.get_atom('_NET_NUMBER_OF_DESKTOPS'), 0).value[0]
+
+    def get_desktop_names(self):
+        '''Returns a list containing desktop names.'''
+
+        count = self.get_desktop_count()
+        names = self.root.get_full_property(self.display.get_atom('_NET_DESKTOP_NAMES'), 0)
+
+        if hasattr(names, 'value'):
+            count = self.get_desktop_count()
+            names = names.value.strip('\x00').split('\x00')[:count]
+        else:
+            names = []
+            for i in range(count):
+                names.append(str(i))
+
+        if len(names) < count:
+            for i in range(len(names), count):
+                names.append(str(i))
+
+        return names
+
+    def switch_desktop(self, num):
+        '''Sets the active desktop to num.'''
+
+        win = self.root
+        ctype = self.display.get_atom('_NET_CURRENT_DESKTOP')
+        data = [num]
+
+        self.send_event(win, ctype, data)
+        self.display.flush()
+
+
+class ViewportPager(Pager):
+    '''Viewport-based pager. To be used with compiz and other viewport-based window managers.'''
+
+    def get_sreen_resolution(self):
+        '''Returns a tupel containing screen resolution in pixels as (width, height).'''
+        
+        return (self.screen.width_in_pixels, self.screen.height_in_pixels)
+
+    def get_current_desktop(self):
+        '''Returns the index of the currently active desktop.'''
+
+        w,h = self.get_sreen_resolution()
+        rows,cols = self.get_desktop_layout()
+        vp = self.root.get_full_property(self.display.get_atom("_NET_DESKTOP_VIEWPORT"), 0).value
+        return round(vp[1]/h)*cols + round(vp[0]/w);
+
+    #TODO: optimize (cache ?)
+    def get_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols.'''
+
+        w,h = self.get_sreen_resolution()
+        size = self.root.get_full_property(self.display.get_atom("_NET_DESKTOP_GEOMETRY"), 0)
+
+        #default values
+        rows = 1
+        cols = 1
+
+        if size != None:
+            rows = round(size.value[1] / h)
+            cols = round(size.value[0] / w)
+        
+        return (int(rows), int(cols))
+
+    def get_desktop_count(self):
+        '''Returns the current number of desktops.'''
+
+        rows,cols = self.get_desktop_layout()
+        return rows * cols
+
+    def get_desktop_names(self):
+        '''Returns a list containing desktop names.'''
+
+        count = self.get_desktop_count()
+        names = []
+        for i in range(count):
+            names.append("Workspace %d" % (i+1))
+
+        return names
+
+    def switch_desktop(self, num):
+        '''Sets the active desktop to num.'''
+
+        w,h = self.get_sreen_resolution()
+        rows,cols = self.get_desktop_layout()
+        x = int(num % cols)
+        y = int(round((num-x)/cols))
+        data = [x*w, y*h]
+        
+        win = self.root
+        ctype = self.display.get_atom("_NET_DESKTOP_VIEWPORT")
+
+        self.send_event(win, ctype, data)
+        self.display.flush()
+
+
+def pager_auto_detect(conf, display, screen, root):
+    '''Auto-detects pager to use.'''
+    pager = None
+    
+    grid = root.get_full_property(display.get_atom('_NET_DESKTOP_LAYOUT'), 0)
+    size = root.get_full_property(display.get_atom("_NET_DESKTOP_GEOMETRY"), 0)
+    
+    if (grid != None and grid.value[2] > 1 and grid.value[1] > 1):
+        return VirtualDesktopPager(conf, display, screen, root)
+    elif (hasattr(size, 'value') and (size.value[1]>screen.height_in_pixels or size.value[0]>screen.width_in_pixels)):
+        print "Using viewport pager."
+        return ViewportPager(conf, display, screen, root)
+    else:
+        # defaults to VirtualDesktop
+        return VirtualDesktopPager(conf, display, screen, root)
+
 
 class Neap(object):
 
@@ -79,6 +284,9 @@ class Neap(object):
         self.screen = self.display.screen()
         self.root = self.screen.root
 
+        #TODO: a config option should force pager selection
+        self.pager = pager_auto_detect(self.conf, self.display, self.screen, self.root)
+        
         # notify about and handle workspace switches
         screen = gtk.gdk.screen_get_default()
         root = screen.get_root_window()
@@ -98,74 +306,15 @@ class Neap(object):
         # we only registered for SUBSTRUCTURE_MASK events, so
         # we just update the pixbuf
 
-        self.update_pixbuf(self.get_current_desktop())
+        self.update_pixbuf(self.pager.get_current_desktop())
         return gtk.gdk.FILTER_CONTINUE
-
-    def get_desktop_tasks(self, num):
-        '''Returns a list of tasks for desktop num.'''
-
-        return self.root.get_full_property(self.display.intern_atom('_NET_CLIENT_LIST'), Xatom.WINDOW).value
-
-    def get_current_desktop(self):
-        '''Returns the index of the currently active desktop.'''
-
-        return self.root.get_full_property(self.display.intern_atom('_NET_CURRENT_DESKTOP'), 0).value[0]
-
-    def get_desktop_layout(self):
-        '''Returns a tupel containing the number of rows and cols.'''
-
-        grid = self.root.get_full_property(self.display.intern_atom('_NET_DESKTOP_LAYOUT'), 0)
-
-        rows = 0
-        cols = 0
-
-        if self.conf['rows'] > 0 and self.conf['columns'] > 0:
-            # if .neaprc config variables are set, enforce them:
-            rows = self.conf['rows']
-            cols = self.conf['columns']
-        elif grid != None and grid.value[2] > 1 and grid.value[1] > 1:
-            # else if _NET_DESKTOP_LAYOUT has sane values, use them:
-            rows = grid.value[2]
-            cols = grid.value[1]
-        else:
-            # else compute nice defaults:
-            count = self.get_desktop_count()
-            rows = round(math.sqrt(count))
-            cols = math.ceil(math.sqrt(count))
-
-        return (int(rows), int(cols))
-
-    def get_desktop_count(self):
-        '''Returns the current number of desktops.'''
-
-        return self.root.get_full_property(self.display.intern_atom('_NET_NUMBER_OF_DESKTOPS'), 0).value[0]
-
-    def get_desktop_names(self):
-        '''Returns a list containing desktop names.'''
-
-        count = self.get_desktop_count()
-        names = self.root.get_full_property(self.display.intern_atom('_NET_DESKTOP_NAMES'), 0)
-
-        if hasattr(names, 'value'):
-            count = self.get_desktop_count()
-            names = names.value.strip('\x00').split('\x00')[:count]
-        else:
-            names = []
-            for i in range(count):
-                names.append(str(i))
-
-        if len(names) < count:
-            for i in range(len(names), count):
-                names.append(str(i))
-
-        return names
 
     def update_grid(self):
         '''Updates internal grid structure.'''
 
         (w, h) = (self.pixbuf.get_width(), self.pixbuf.get_height())
-        (rows, cols) = self.get_desktop_layout()
-        count = self.get_desktop_count()
+        (rows, cols) = self.pager.get_desktop_layout()
+        count = self.pager.get_desktop_count()
         padding = self.conf['padding']
         spacing = self.conf['spacing']
 
@@ -256,46 +405,25 @@ class Neap(object):
 
         if 0 <= num <= self.get_desktop_count():
             self.update_pixbuf(num)
-            gobject.idle_add(self.switch_desktop, num)
+            gobject.idle_add(self.pager.switch_desktop, num)
 
     def scroll(self, status_icon, event):
         '''Callback for scroll wheel actions.'''
 
         if event.direction == gtk.gdk.SCROLL_UP:
-            target = self.get_current_desktop() - 1
+            target = self.pager.get_current_desktop() - 1
         elif event.direction == gtk.gdk.SCROLL_DOWN:
-            target = self.get_current_desktop() + 1
+            target = self.pager.get_current_desktop() + 1
         else:
             return
 
-        self.switch_desktop(target % self.get_desktop_count())
-
-    def switch_desktop(self, num):
-        '''Sets the active desktop to num.'''
-
-        win = self.root
-        ctype = self.display.intern_atom('_NET_CURRENT_DESKTOP')
-        data = [num]
-
-        self.send_event(win, ctype, data)
-        self.display.flush()
-
-    def send_event(self, win, ctype, data, mask=None):
-        '''Sends a ClientMessage event to the root window.'''
-
-        data = (data + [0] * (5 - len(data)))[:5]
-        ev = Xlib.protocol.event.ClientMessage(window=win,
-                client_type=ctype, data=(32, data))
-
-        if not mask:
-            mask = X.SubstructureRedirectMask | X.SubstructureNotifyMask
-        self.root.send_event(ev, event_mask=mask)
+        self.pager.switch_desktop(target % self.pager.get_desktop_count())
 
     def desktop_callback(self, widget, data=None):
         '''Callback for the menu's desktop selector.'''
 
         if widget.get_active():
-            self.switch_desktop(data)
+            self.pager.switch_desktop(data)
 
     def get_menu_about(self):
         '''Returns a menu for the right-click action.'''
@@ -305,12 +433,12 @@ class Neap(object):
         submenu = gtk.Menu()
         group = None
         i = 0
-        for desktop in self.get_desktop_names():
+        for desktop in self.pager.get_desktop_names():
             item = gtk.RadioMenuItem(group, desktop)
 
             group = item
 
-            if i == self.get_current_desktop():
+            if i == self.pager.get_current_desktop():
                 item.set_active(True)
 
             item.connect('toggled', self.desktop_callback, i)
@@ -444,7 +572,7 @@ class Neap(object):
     def main(self):
         '''Starts the main GTK loop.'''
 
-        num = self.get_current_desktop()
+        num = self.pager.get_current_desktop()
         self.update_pixbuf(num)
         gtk.main()
 
