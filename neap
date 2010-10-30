@@ -21,7 +21,7 @@ import Xlib.protocol.event
 
 __appname__ = 'neap'
 __author__ = ['Philip Busch <philip@0xe3.com>']
-__version__ = '0.5.2'
+__version__ = '0.6'
 __license__ = 'BSD'
 __website__ = 'http://code.google.com/p/neap/'
 
@@ -500,14 +500,15 @@ class Neap(object):
         if os.path.exists(tmp):
             basedir = os.path.join(tmp, 'neap')
             if not os.path.exists(basedir):
-                if os.mkdir(basedir, 0755) < 0:
-                    print '{0}: cannot create directory {1}'.format(self.name,
-                            basedir)
+                # if os.mkdir(basedir, 0755) < 0:  # (python 2)
+                if os.mkdir(basedir, 0o755) < 0:
+                    print ('{0}: cannot create directory {1}'.format(self.name,
+                            basedir))
                     return None
         else:
             basedir = home
 
-        print 'now: {0}'.format(basedir)
+        print ('now: {0}'.format(basedir))
 
         return 0
 
@@ -520,7 +521,7 @@ class Neap(object):
 
             for key,val in parser.items('neap'):
                 if not self.set(key, val):
-                    print "{0}: {1}: {2} = {3}: invalid syntax".format(self.name, file, key, val)
+                    print ("{0}: {1}: {2} = {3}: invalid syntax".format(self.name, file, key, val))
                     return False
 
         return True
@@ -614,8 +615,8 @@ if __name__ == '__main__':
                     datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
             f.close()
-        except IOError, (errno, strerror):
-            print '{0}: {1}: {2}'.format(__appname__, cfile, strerror)
+        except IOError (errno, strerror):
+            print ('{0}: {1}: {2}'.format(__appname__, cfile, strerror))
             sys.exit(-1)
 
     neap = Neap()

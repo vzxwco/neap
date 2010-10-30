@@ -1,3 +1,9 @@
+2010-10-30
+- preliminary viewport support
+- some Python3 improvements
+- TODO: add virtual/viewport switch to config
+- TODO: update documentation
+
 2010-06-22
 - Added __setitem()__ and __getitem()__, replacing set() and get()
 - read_configfile() uses RawConfigParser now; removed hand-written parser
