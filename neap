@@ -21,7 +21,7 @@ import Xlib.protocol.event
 
 __appname__ = 'neap'
 __author__ = ['Philip Busch <philip@0xe3.com>']
-__version__ = '0.6'
+__version__ = '0.6.1'
 __license__ = 'BSD'
 __website__ = 'http://code.google.com/p/neap/'
 
@@ -49,6 +49,9 @@ rows = 0
 
 ;number of columns in desktop grid
 columns = 0
+
+;manual pager selection: virtual|viewport|auto
+;pager = auto
 """
 
 class Pager:
@@ -73,7 +76,7 @@ class Pager:
         return 0
 
     def get_desktop_layout(self):
-        '''Returns a tupel containing the number of rows and cols.'''
+        '''Returns a tupel containing the number of rows and cols, from the window manager.'''
         
         return (1,1)
 
@@ -113,29 +116,22 @@ class VirtualDesktopPager(Pager):
         return self.root.get_full_property(self.display.get_atom('_NET_CURRENT_DESKTOP'), 0).value[0]
 
     def get_desktop_layout(self):
-        '''Returns a tupel containing the number of rows and cols.'''
+        '''Returns a tupel containing the number of rows and cols, from the window manager.'''
 
         grid = self.root.get_full_property(self.display.get_atom('_NET_DESKTOP_LAYOUT'), 0)
 
         rows = 0
         cols = 0
 
-        if self.conf['rows'] > 0 and self.conf['columns'] > 0:
-            # if .neaprc config variables are set, enforce them:
-            rows = self.conf['rows']
-            cols = self.conf['columns']
-            print "from conf:", rows, cols
-        elif grid != None and grid.value[2] > 1 and grid.value[1] > 1:
-            # else if _NET_DESKTOP_LAYOUT has sane values, use them:
+        if grid != None and grid.value[2] > 1 and grid.value[1] > 1:
+            # if _NET_DESKTOP_LAYOUT has sane values, use them:
             rows = grid.value[2]
             cols = grid.value[1]
-            print "grid:", rows, cols
         else:
             # else compute nice defaults:
             count = self.get_desktop_count()
             rows = round(math.sqrt(count))
             cols = math.ceil(math.sqrt(count))
-            print "defaults:", rows, cols, grid
 
         return (int(rows), int(cols))
 
@@ -193,7 +189,7 @@ class ViewportPager(Pager):
 
     #TODO: optimize (cache ?)
     def get_desktop_layout(self):
-        '''Returns a tupel containing the number of rows and cols.'''
+        '''Returns a tupel containing the number of rows and cols, from the window manager.'''
 
         w,h = self.get_sreen_resolution()
         size = self.root.get_full_property(self.display.get_atom("_NET_DESKTOP_GEOMETRY"), 0)
@@ -220,7 +216,7 @@ class ViewportPager(Pager):
         count = self.get_desktop_count()
         names = []
         for i in range(count):
-            names.append("Workspace %d" % (i+1))
+            names.append('Workspace {0}'.format(i+1))
 
         return names
 
@@ -250,7 +246,6 @@ def pager_auto_detect(conf, display, screen, root):
     if (grid != None and grid.value[2] > 1 and grid.value[1] > 1):
         return VirtualDesktopPager(conf, display, screen, root)
     elif (hasattr(size, 'value') and (size.value[1]>screen.height_in_pixels or size.value[0]>screen.width_in_pixels)):
-        print "Using viewport pager."
         return ViewportPager(conf, display, screen, root)
     else:
         # defaults to VirtualDesktop
@@ -277,6 +272,7 @@ class Neap(object):
         self.conf['color_background'] = 'yellow'
         self.conf['rows'] = 0
         self.conf['columns'] = 0
+        self.conf['pager'] = 'auto'
         self.grid = []
 
         # X stuff
@@ -284,8 +280,8 @@ class Neap(object):
         self.screen = self.display.screen()
         self.root = self.screen.root
 
-        #TODO: a config option should force pager selection
-        self.pager = pager_auto_detect(self.conf, self.display, self.screen, self.root)
+        # auto-detects pager by default
+        self.select_pager('auto')
         
         # notify about and handle workspace switches
         screen = gtk.gdk.screen_get_default()
@@ -300,6 +296,21 @@ class Neap(object):
         self.icon.connect('popup-menu', self.right)
         self.icon.connect('scroll-event', self.scroll)
 
+    def select_pager(self, pager_name='auto'):
+        '''Sets the pager given its name (or automatically). Returns False if the name is invalid.'''
+        
+        if (pager_name == 'auto'):
+            self.pager = pager_auto_detect(self.conf, self.display, self.screen, self.root)
+        elif (pager_name == 'virtual'):
+            self.pager = VirtualDesktopPager(self.conf, self.display, self.screen, self.root)
+        elif (pager_name == 'viewport'):
+            self.pager = ViewportPager(self.conf, self.display, self.screen, self.root)
+        else:
+            # unknown pager name
+            return False
+        
+        return True
+
     def event_filter(self, event, user_data=None):
         '''Handles incoming gtk.gdk.Events.'''
 
@@ -309,11 +320,23 @@ class Neap(object):
         self.update_pixbuf(self.pager.get_current_desktop())
         return gtk.gdk.FILTER_CONTINUE
 
+    def get_icon_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols, for the pager icon.'''
+
+        if self.conf['rows'] > 0 and self.conf['columns'] > 0:
+            # if .neaprc config variables are set, enforce them:
+            rows = self.conf['rows']
+            cols = self.conf['columns']
+            return (rows, cols)
+        else:
+            # else icon layout = window manager's desktop layout
+            return self.pager.get_desktop_layout()
+
     def update_grid(self):
         '''Updates internal grid structure.'''
 
         (w, h) = (self.pixbuf.get_width(), self.pixbuf.get_height())
-        (rows, cols) = self.pager.get_desktop_layout()
+        (rows, cols) = self.get_icon_desktop_layout()
         count = self.pager.get_desktop_count()
         padding = self.conf['padding']
         spacing = self.conf['spacing']
@@ -403,7 +426,7 @@ class Neap(object):
 
         num = self.get_screen()
 
-        if 0 <= num <= self.get_desktop_count():
+        if 0 <= num <= self.pager.get_desktop_count():
             self.update_pixbuf(num)
             gobject.idle_add(self.pager.switch_desktop, num)
 
@@ -541,7 +564,10 @@ class Neap(object):
 
         # discard empty values
         if val == None:
-            return None
+            return False
+
+        if key == 'pager':
+            return self.select_pager(val)
 
         # is val a number, a hex color or the string "transparent"?
         if not (val == "transparent" or
@@ -605,6 +631,10 @@ if __name__ == '__main__':
     parser.add_option('-c', '--columns', dest='columns',
                       help='number of grid columns', metavar='N')
 
+    parser.add_option('-g', '--pager', dest='pager',
+                      help='select a specific pager: virtual|viewport|auto'
+                      , metavar='P')
+
     (opts, args) = parser.parse_args()
 
     cfile = os.path.expanduser('~/.neaprc')
@@ -631,6 +661,7 @@ if __name__ == '__main__':
     neap['color_background'] = opts.color_background
     neap['rows'] = opts.rows
     neap['columns'] = opts.columns
+    neap['pager'] = opts.pager
 
     neap.main()
 

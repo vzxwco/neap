@@ -1,3 +1,10 @@
+2010-10-31
+- separated icon's desktop layout from "real" (window manager's) dektop layout
+- viewport pager uses configured 'rows' and 'cols' when present
+- user can now force a specific pager via config option 'pager', and command line argument '-g' or '--pager'
+- fixed left-click bug introduced with viewport support
+- removed debug information output from viewport pager
+
 2010-10-30
 - preliminary viewport support
 - replaced calls to intern_atom() by get_atom() to improve performance
