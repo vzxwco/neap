@@ -1,3 +1,7 @@
+2010-11-01
+- added CLI option -v, --version
+- updated list of authors
+
 2010-10-31
 - separated icon's desktop layout from "real" (window manager's) dektop layout
 - viewport pager uses configured 'rows' and 'cols' when present
