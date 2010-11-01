@@ -20,7 +20,7 @@ from Xlib import X, display, error, Xatom, Xutil
 import Xlib.protocol.event
 
 __appname__ = 'neap'
-__author__ = ['Philip Busch <philip@0xe3.com>', 'Clément Lavoillotte <clavoilotte@gmail.com>']
+__author__ = ['Philip Busch <philip@0xe3.com>', 'Clément Lavoillotte']
 __version__ = '0.6.3'
 __license__ = 'BSD'
 __website__ = 'http://code.google.com/p/neap/'
@@ -459,7 +459,6 @@ class Neap(object):
             return
 
         self.old_active = active
-        print("DRAW %d" % active)
 
         (w, h) = (self.pixbuf.get_width(), self.pixbuf.get_height())
         
