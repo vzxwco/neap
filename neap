@@ -57,10 +57,9 @@ columns = 0
 class Pager:
     '''Dummy pager, not intended to be used directly'''
     
-    def __init__(self, conf, display, screen, root):
+    def __init__(self, display, screen, root):
         '''Initialization.'''
         
-        self.conf = conf
         self.display = display
         self.screen = screen
         self.root = root
@@ -236,7 +235,7 @@ class ViewportPager(Pager):
         self.display.flush()
 
 
-def pager_auto_detect(conf, display, screen, root):
+def pager_auto_detect(display, screen, root):
     '''Auto-detects pager to use.'''
     pager = None
     
@@ -244,12 +243,12 @@ def pager_auto_detect(conf, display, screen, root):
     size = root.get_full_property(display.get_atom("_NET_DESKTOP_GEOMETRY"), 0)
     
     if (grid != None and grid.value[2] > 1 and grid.value[1] > 1):
-        return VirtualDesktopPager(conf, display, screen, root)
+        return VirtualDesktopPager(display, screen, root)
     elif (hasattr(size, 'value') and (size.value[1]>screen.height_in_pixels or size.value[0]>screen.width_in_pixels)):
-        return ViewportPager(conf, display, screen, root)
+        return ViewportPager(display, screen, root)
     else:
         # defaults to VirtualDesktop
-        return VirtualDesktopPager(conf, display, screen, root)
+        return VirtualDesktopPager(display, screen, root)
 
 
 PAGERS = {'virtual': VirtualDesktopPager, 'viewport':ViewportPager, 'auto':pager_auto_detect}
@@ -371,7 +370,7 @@ class Neap(object):
         self.root = self.screen.root
 
         # select pager
-        self.pager = PAGERS[self.conf['pager']](self.conf, self.display, self.screen, self.root)
+        self.pager = PAGERS[self.conf['pager']](self.display, self.screen, self.root)
 
         # notify about and handle workspace switches
         screen = gtk.gdk.screen_get_default()
