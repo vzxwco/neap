@@ -1,0 +1,16 @@
+# This file needs to be placed in /usr/share/applications/ to make neap
+# listed in the application menus.
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Neap
+Name[fr]=Neap
+Comment=A simple pager/desktop switcher
+Comment[fr]=Un pager/changeur de bureau simple
+Comment[de]=Ein einfacher Pager / Desktop Switcher
+Exec=neap
+TryExec=neap
+Icon=workspace-switcher
+StartupNotify=true
+Categories=GTK;Utility;
+Terminal=false

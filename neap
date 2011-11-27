@@ -21,7 +21,7 @@ import Xlib.protocol.event
 
 __appname__ = 'neap'
 __author__ = ['Philip Busch <vzxwco@gmail.com>', 'Clément Lavoillotte', 'Samuel Bauer <samuel.bauer@yahoo.fr>']
-__version__ = '0.7'
+__version__ = '0.7.1'
 __license__ = 'BSD'
 __website__ = 'http://code.google.com/p/neap/'
 

@@ -1,6 +1,7 @@
 2011-11-27
 - added config option "geometry"
 - added CLI option --geometry
+- added file neap.desktop (to be placed in /usr/share/applications/
 - updated list of authors
 
 2010-11-01
