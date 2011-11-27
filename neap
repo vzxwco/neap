@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Copyright (c) 2010, Philip Busch <philip@0xe3.com>
+Copyright (c) 2010-2011, Philip Busch <vzxwco@gmail.com>
 See License.txt for details.
 """
 
@@ -20,8 +20,8 @@ from Xlib import X, display, error, Xatom, Xutil
 import Xlib.protocol.event
 
 __appname__ = 'neap'
-__author__ = ['Philip Busch <philip@0xe3.com>', 'Clément Lavoillotte']
-__version__ = '0.6.3'
+__author__ = ['Philip Busch <vzxwco@gmail.com>', 'Clément Lavoillotte', 'Samuel Bauer <samuel.bauer@yahoo.fr>']
+__version__ = '0.7'
 __license__ = 'BSD'
 __website__ = 'http://code.google.com/p/neap/'
 
@@ -52,6 +52,10 @@ columns = 0
 
 ;manual pager selection: virtual|viewport|auto
 ;pager = auto
+
+;icon geometry: 20x20
+;geometry: 20x20
+
 """
 
 class Pager:
@@ -272,6 +276,7 @@ class NeapConfig(object):
         self.conf['rows'] = 0
         self.conf['columns'] = 0
         self.conf['pager'] = 'auto'
+        self.conf['geometry'] = (20,20)
 
     def __setitem__(self, key, val):
         '''Sets config variable key to val.'''
@@ -290,8 +295,21 @@ class NeapConfig(object):
         if val == None:
             return False
 
+        if key == 'geometry':
+	    try:
+	        icon_width, icon_height = val.split("x")
+                icon_width = int(icon_width)
+                icon_height = int(icon_height)
+            except Exception, e:
+		return False
+            self.conf['geometry'] = (icon_width, icon_height)
+            return True
+
         if key == 'pager':
-            return (key in PAGERS)
+            if val in PAGERS:
+                self.conf['pager'] = val
+                return True
+            return False
 
         # is val a number, a hex color or the string "transparent"?
         if not (val == "transparent" or
@@ -386,11 +404,11 @@ class Neap(object):
         self.color_active = self.colormap.alloc_color(self.conf['color_active'])
         self.color_inactive = self.colormap.alloc_color(self.conf['color_inactive'])
         self.color_background = self.colormap.alloc_color(self.conf['color_background'])
-        self.pixmap = gtk.gdk.Pixmap(None, 20, 20, 32)
+        self.pixmap = gtk.gdk.Pixmap(None, self.conf['geometry'][0], self.conf['geometry'][1], 32)
         self.gc = self.pixmap.new_gc()
         
         self.pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8,
-                20, 20)
+                self.conf['geometry'][0], self.conf['geometry'][1])
         self.icon = gtk.StatusIcon()
         self.icon.connect('activate', self.left)
         self.icon.connect('popup-menu', self.right)
@@ -493,9 +511,10 @@ class Neap(object):
 
         (screen, rectangle, orientation) = self.icon.get_geometry()
         (width, height, size_x, size_y) = rectangle
+	(w, h) = self.conf['geometry']
 
-        pos_x = pointer_x - width
-        pos_y = pointer_y - height
+        pos_x = pointer_x - width - ( size_x - w ) / 2;
+        pos_y = pointer_y - height - ( size_y - h ) / 2;
 
         i = 0
         for cell in self.grid:
@@ -565,9 +584,9 @@ class Neap(object):
         item.connect('activate', self.about)
         menu.add(item)
 
-        # item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
-        # item.connect("activate", gtk.main_quit)
-        # menu.add(item)
+        item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
+        item.connect("activate", gtk.main_quit)
+        menu.add(item)
 
         self.menu = menu
         menu.show_all()
@@ -629,7 +648,6 @@ class Neap(object):
         self.update_pixbuf(num)
         gtk.main()
 
-
 if __name__ == '__main__':
     parser = OptionParser()
 
@@ -657,9 +675,12 @@ if __name__ == '__main__':
     parser.add_option('-c', '--columns', dest='columns',
                       help='number of grid columns', metavar='N')
 
-    parser.add_option('-g', '--pager', dest='pager',
+    parser.add_option('-P', '--pager', dest='pager',
                       help='select a specific pager: virtual|viewport|auto'
                       , metavar='P')
+
+    parser.add_option('-g', '--geometry', dest='geometry',
+                      help='set icon geometry', metavar='WxH')
 
     parser.add_option('-v', '--version', action='store_true', dest='version',
                       default=False, help="print version information and exit")
@@ -695,8 +716,8 @@ if __name__ == '__main__':
     config['rows'] = opts.rows
     config['columns'] = opts.columns
     config['pager'] = opts.pager
+    config['geometry'] = opts.geometry
 
     neap = Neap(config)
 
     neap.main()
-

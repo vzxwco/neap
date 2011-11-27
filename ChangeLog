@@ -1,3 +1,8 @@
+2011-11-27
+- added config option "geometry"
+- added CLI option --geometry
+- updated list of authors
+
 2010-11-01
 - performance improvements
 - moved all the configuration to a NeapConfig object
