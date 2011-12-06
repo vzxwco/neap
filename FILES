@@ -1,0 +1,12 @@
+Hello package maintainer. Here you'll find a list of files in the
+neap package, along with a short description and their respective
+destination directories.
+
+FILE          DESCRIPTION           LOCATION
+----          -----------           --------
+neap          The neap executable   [/bin/]
+neap.1        manpage               [/usr/share/man/man1/]
+neap.desktop  application launcher  [/usr/share/applications/]
+
+Thanks for taking care :-)
+

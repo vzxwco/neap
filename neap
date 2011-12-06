@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 # -*- coding: utf-8 -*-
 
 """
@@ -648,7 +648,19 @@ class Neap(object):
         self.update_pixbuf(num)
         gtk.main()
 
+
+
+
 if __name__ == '__main__':
+
+    def print_help(option, opt, value, parser):
+        print("{0} is a lightweight pager running in the notification area".format(__appname__))
+	print("of freedesktop-compliant window managers\n")
+        parser.print_help()
+	print("\nRun \"man neap\" or see {0} for more information.".format(__website__))
+	print("\nReport bugs to <vzxwco@gmail.com>")
+        sys.exit(0)
+
     parser = OptionParser()
 
     parser.add_option('-p', '--padding', dest='padding',
@@ -676,14 +688,18 @@ if __name__ == '__main__':
                       help='number of grid columns', metavar='N')
 
     parser.add_option('-P', '--pager', dest='pager',
-                      help='select a specific pager: virtual|viewport|auto'
-                      , metavar='P')
+                      help='select a specific pager: virtual|viewport|auto',
+                      metavar='P')
 
     parser.add_option('-g', '--geometry', dest='geometry',
                       help='set icon geometry', metavar='WxH')
 
     parser.add_option('-v', '--version', action='store_true', dest='version',
                       default=False, help="print version information and exit")
+
+    parser.remove_option('-h')
+    parser.add_option('-h', '--help', action="callback", callback=print_help,
+                      help='print this help text and exit')
 
     (opts, args) = parser.parse_args()
 
