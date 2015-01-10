@@ -15,10 +15,6 @@ Features
 * unobtrusive
 * fast
 
-Documentation
-=============
-
-
 Screenshot
 ==========
 In the bottom right corner of the screen, you see (from right to left) a clock and a battery status indicator, followed by two systray applications: my network manager and, finally, neap, currently showing the 2nd of my four virtual desktops:
