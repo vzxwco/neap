@@ -1,0 +1,739 @@
+#!/usr/bin/python2
+# -*- coding: utf-8 -*-
+
+"""
+Copyright (c) 2010-2011, Philip Busch <vzxwco@gmail.com>
+See License.txt for details.
+"""
+
+import sys
+import os
+import re
+import math
+import ConfigParser
+from datetime import datetime
+from optparse import OptionParser
+
+import gtk
+import gobject
+from Xlib import X, display, error, Xatom, Xutil
+import Xlib.protocol.event
+
+__appname__ = 'neap'
+__author__ = ['Philip Busch <vzxwco@gmail.com>', 'Clément Lavoillotte', 'Samuel Bauer <samuel.bauer@yahoo.fr>']
+__version__ = '0.7.1'
+__license__ = 'BSD'
+__website__ = 'http://code.google.com/p/neap/'
+
+DEFAULT_CONFIG = \
+    """;{0} v{1} config file generated {2}
+[neap]
+
+;number of pixels between outer border and the actual grid
+padding = 2
+
+;number of pixels between grid boxes
+spacing = 1
+
+;foreground color (inactive desktops)
+color_inactive = #333333
+
+;highlight color (the active desktop)
+color_active = #999999
+
+;background color ("transparent" for transparent background)
+color_background = transparent
+
+;number of rows in desktop grid
+rows = 0
+
+;number of columns in desktop grid
+columns = 0
+
+;manual pager selection: virtual|viewport|auto
+;pager = auto
+
+;icon geometry: 20x20
+;geometry: 20x20
+
+"""
+
+class Pager:
+    '''Dummy pager, not intended to be used directly'''
+    
+    def __init__(self, display, screen, root):
+        '''Initialization.'''
+        
+        self.display = display
+        self.screen = screen
+        self.root = root
+
+    def get_desktop_tasks(self, num):
+        '''Returns a list of tasks for desktop num.'''
+
+        return self.root.get_full_property(self.display.get_atom('_NET_CLIENT_LIST'), Xatom.WINDOW).value
+
+    def get_current_desktop(self):
+        '''Returns the index of the currently active desktop.'''
+        
+        return 0
+
+    def get_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols, from the window manager.'''
+        
+        return (1,1)
+
+    def get_desktop_count(self):
+        '''Returns the current number of desktops.'''
+
+        return 1
+
+    def get_desktop_names(self):
+        '''Returns a list containing desktop names.'''
+
+        return ['Desktop']
+
+    def switch_desktop(self, num):
+        '''Sets the active desktop to num.'''
+
+        pass
+
+    def send_event(self, win, ctype, data, mask=None):
+        '''Sends a ClientMessage event to the root window.'''
+
+        data = (data + [0] * (5 - len(data)))[:5]
+        ev = Xlib.protocol.event.ClientMessage(window=win,
+                client_type=ctype, data=(32, data))
+
+        if not mask:
+            mask = X.SubstructureRedirectMask | X.SubstructureNotifyMask
+        self.root.send_event(ev, event_mask=mask)
+
+
+class VirtualDesktopPager(Pager):
+    '''Virtual desktop / workspace -based pager. Should be used with most freedesktop-compliant window managers.'''
+    
+    def get_current_desktop(self):
+        '''Returns the index of the currently active desktop.'''
+
+        return self.root.get_full_property(self.display.get_atom('_NET_CURRENT_DESKTOP'), 0).value[0]
+
+    def get_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols, from the window manager.'''
+
+        grid = self.root.get_full_property(self.display.get_atom('_NET_DESKTOP_LAYOUT'), 0)
+
+        rows = 0
+        cols = 0
+
+        if grid != None and grid.value[2] > 1 and grid.value[1] > 1:
+            # if _NET_DESKTOP_LAYOUT has sane values, use them:
+            rows = grid.value[2]
+            cols = grid.value[1]
+        else:
+            # else compute nice defaults:
+            count = self.get_desktop_count()
+            rows = round(math.sqrt(count))
+            cols = math.ceil(math.sqrt(count))
+
+        return (int(rows), int(cols))
+
+    def get_desktop_count(self):
+        '''Returns the current number of desktops.'''
+
+        return self.root.get_full_property(self.display.get_atom('_NET_NUMBER_OF_DESKTOPS'), 0).value[0]
+
+    def get_desktop_names(self):
+        '''Returns a list containing desktop names.'''
+
+        count = self.get_desktop_count()
+        names = self.root.get_full_property(self.display.get_atom('_NET_DESKTOP_NAMES'), 0)
+
+        if hasattr(names, 'value'):
+            count = self.get_desktop_count()
+            names = names.value.strip('\x00').split('\x00')[:count]
+        else:
+            names = []
+            for i in range(count):
+                names.append(str(i))
+
+        if len(names) < count:
+            for i in range(len(names), count):
+                names.append(str(i))
+
+        return names
+
+    def switch_desktop(self, num):
+        '''Sets the active desktop to num.'''
+
+        win = self.root
+        ctype = self.display.get_atom('_NET_CURRENT_DESKTOP')
+        data = [num]
+
+        self.send_event(win, ctype, data)
+        self.display.flush()
+
+
+class ViewportPager(Pager):
+    '''Viewport-based pager. To be used with compiz and other viewport-based window managers.'''
+
+    def get_sreen_resolution(self):
+        '''Returns a tupel containing screen resolution in pixels as (width, height).'''
+        
+        return (self.screen.width_in_pixels, self.screen.height_in_pixels)
+
+    def get_current_desktop(self):
+        '''Returns the index of the currently active desktop.'''
+
+        w,h = self.get_sreen_resolution()
+        rows,cols = self.get_desktop_layout()
+        vp = self.root.get_full_property(self.display.get_atom("_NET_DESKTOP_VIEWPORT"), 0).value
+        return round(vp[1]/h)*cols + round(vp[0]/w);
+
+    #TODO: optimize (cache ?)
+    def get_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols, from the window manager.'''
+
+        w,h = self.get_sreen_resolution()
+        size = self.root.get_full_property(self.display.get_atom("_NET_DESKTOP_GEOMETRY"), 0)
+
+        #default values
+        rows = 1
+        cols = 1
+
+        if size != None:
+            rows = round(size.value[1] / h)
+            cols = round(size.value[0] / w)
+        
+        return (int(rows), int(cols))
+
+    def get_desktop_count(self):
+        '''Returns the current number of desktops.'''
+
+        rows,cols = self.get_desktop_layout()
+        return rows * cols
+
+    def get_desktop_names(self):
+        '''Returns a list containing desktop names.'''
+
+        count = self.get_desktop_count()
+        names = []
+        for i in range(count):
+            names.append('Workspace {0}'.format(i+1))
+
+        return names
+
+    def switch_desktop(self, num):
+        '''Sets the active desktop to num.'''
+
+        w,h = self.get_sreen_resolution()
+        rows,cols = self.get_desktop_layout()
+        x = int(num % cols)
+        y = int(round((num-x)/cols))
+        data = [x*w, y*h]
+        
+        win = self.root
+        ctype = self.display.get_atom("_NET_DESKTOP_VIEWPORT")
+
+        self.send_event(win, ctype, data)
+        self.display.flush()
+
+
+def pager_auto_detect(display, screen, root):
+    '''Auto-detects pager to use.'''
+    pager = None
+    
+    grid = root.get_full_property(display.get_atom('_NET_DESKTOP_LAYOUT'), 0)
+    size = root.get_full_property(display.get_atom("_NET_DESKTOP_GEOMETRY"), 0)
+    
+    if (grid != None and grid.value[2] > 1 and grid.value[1] > 1):
+        return VirtualDesktopPager(display, screen, root)
+    elif (hasattr(size, 'value') and (size.value[1]>screen.height_in_pixels or size.value[0]>screen.width_in_pixels)):
+        return ViewportPager(display, screen, root)
+    else:
+        # defaults to VirtualDesktop
+        return VirtualDesktopPager(display, screen, root)
+
+
+PAGERS = {'virtual': VirtualDesktopPager, 'viewport':ViewportPager, 'auto':pager_auto_detect}
+
+
+class NeapConfig(object):
+
+    def __init__(self):
+        '''Initialization.'''
+
+        # program info
+        self.name = __appname__
+
+        # default config
+        self.conf = {}
+        self.conf['padding'] = 3
+        self.conf['spacing'] = 1
+        self.conf['color_active'] = 'red'
+        self.conf['color_inactive'] = 'green'
+        self.conf['color_background'] = 'yellow'
+        self.conf['rows'] = 0
+        self.conf['columns'] = 0
+        self.conf['pager'] = 'auto'
+        self.conf['geometry'] = (20,20)
+
+    def __setitem__(self, key, val):
+        '''Sets config variable key to val.'''
+
+        self.set(key, val)
+
+    def __getitem__(self, key):
+        '''Returns the value of config variable key.'''
+
+        return self.conf[key]
+
+    def set(self, key, val):
+        '''Sets config variable key to val, including sanity-check.'''
+
+        # discard empty values
+        if val == None:
+            return False
+
+        if key == 'geometry':
+	    try:
+	        icon_width, icon_height = val.split("x")
+                icon_width = int(icon_width)
+                icon_height = int(icon_height)
+            except Exception, e:
+		return False
+            self.conf['geometry'] = (icon_width, icon_height)
+            return True
+
+        if key == 'pager':
+            if val in PAGERS:
+                self.conf['pager'] = val
+                return True
+            return False
+
+        # is val a number, a hex color or the string "transparent"?
+        if not (val == "transparent" or
+                re.match("#[a-fA-F0-9]{6}", val) != None or
+                val.isdigit()):
+            return False
+
+        try:
+            val = int(val)
+        except ValueError:
+            pass
+
+        if val == 'transparent':
+            val = '#2357bd'
+
+        if key not in self.conf.keys():
+            return False
+
+        self.conf[key] = val
+
+        return True
+
+    def write_configfile(self):
+        '''Creates config file.'''
+
+        home = os.path.expanduser('~')
+        tmp = os.path.join(home, '.config/')
+        if os.path.exists(tmp):
+            basedir = os.path.join(tmp, 'neap')
+            if not os.path.exists(basedir):
+                # if os.mkdir(basedir, 0755) < 0:  # (python 2)
+                if os.mkdir(basedir, 0o755) < 0:
+                    print ('{0}: cannot create directory {1}'.format(self.name,
+                            basedir))
+                    return None
+        else:
+            basedir = home
+
+        print ('now: {0}'.format(basedir))
+
+        return 0
+
+    def read_configfiles(self, paths):
+        '''Reads config file from path.'''
+
+        for file in paths:
+            parser = ConfigParser.RawConfigParser()
+            parser.read(os.path.expanduser(file))
+
+            for key,val in parser.items('neap'):
+                if not self.set(key, val):
+                    print ("{0}: {1}: {2} = {3}: invalid syntax".format(self.name, file, key, val))
+                    return False
+
+        return True
+
+
+class Neap(object):
+
+    def __init__(self, config):
+        '''Initialization.'''
+
+        # program info
+        self.name = __appname__
+        self.version = __version__
+        self.author = __author__
+        self.website = __website__
+
+        # default config
+        self.conf = config
+        self.grid = []
+
+        # X stuff
+        self.display = display.Display()
+        self.screen = self.display.screen()
+        self.root = self.screen.root
+
+        # select pager
+        self.pager = PAGERS[self.conf['pager']](self.display, self.screen, self.root)
+
+        # notify about and handle workspace switches
+        screen = gtk.gdk.screen_get_default()
+        root = screen.get_root_window()
+        root.set_events(gtk.gdk.SUBSTRUCTURE_MASK)
+        root.add_filter(self.event_filter)
+
+        # initialize data
+        self.old_active = -2
+        self.count = -2
+        self.layout = (-2, -2)
+        self.colormap = gtk.gdk.Colormap(gtk.gdk.visual_get_best(), False)
+        self.color_active = self.colormap.alloc_color(self.conf['color_active'])
+        self.color_inactive = self.colormap.alloc_color(self.conf['color_inactive'])
+        self.color_background = self.colormap.alloc_color(self.conf['color_background'])
+        self.pixmap = gtk.gdk.Pixmap(None, self.conf['geometry'][0], self.conf['geometry'][1], 32)
+        self.gc = self.pixmap.new_gc()
+        
+        self.pixbuf = gtk.gdk.Pixbuf(gtk.gdk.COLORSPACE_RGB, True, 8,
+                self.conf['geometry'][0], self.conf['geometry'][1])
+        self.icon = gtk.StatusIcon()
+        self.icon.connect('activate', self.left)
+        self.icon.connect('popup-menu', self.right)
+        self.icon.connect('scroll-event', self.scroll)
+
+    def event_filter(self, event, user_data=None):
+        '''Handles incoming gtk.gdk.Events.'''
+
+        # we only registered for SUBSTRUCTURE_MASK events, so
+        # we just update the pixbuf
+        self.update_pixbuf(self.pager.get_current_desktop())
+        return gtk.gdk.FILTER_CONTINUE
+
+    def get_icon_desktop_layout(self):
+        '''Returns a tupel containing the number of rows and cols, for the pager icon.'''
+
+        if self.conf['rows'] > 0 and self.conf['columns'] > 0:
+            # if .neaprc config variables are set, enforce them:
+            rows = self.conf['rows']
+            cols = self.conf['columns']
+            return (rows, cols)
+        else:
+            # else icon layout = window manager's desktop layout
+            return self.pager.get_desktop_layout()
+
+    def update_grid(self):
+        '''Updates internal grid structure. Returns False if the grid did not need to be updated.'''
+
+        (rows, cols) = self.get_icon_desktop_layout()
+        count = self.pager.get_desktop_count()
+        if ((rows, cols) == self.layout and count == self.count):
+            return False
+        self.layout = (rows, cols)
+        self.count = count
+        
+        (w, h) = (self.pixbuf.get_width(), self.pixbuf.get_height())
+        padding = self.conf['padding']
+        spacing = self.conf['spacing']
+
+        n = max(rows, cols)
+        c = (w - 2 * padding - (n - 1) * spacing) / cols
+
+        grid_width = cols * c + (cols - 1) * spacing
+        grid_height = rows * c + (rows - 1) * spacing
+
+        off_x = (w - 2 * padding - grid_width) / 2
+        off_y = (h - 2 * padding - grid_height) / 2
+
+        grid = []
+        for i in range(rows):
+            for j in range(cols):
+                x = off_x + padding + j * (c + spacing)
+                y = off_y + padding + i * (c + spacing)
+
+                if i * cols + j < count:
+                    grid.append((x, y, c, c))
+
+        self.grid = grid
+        return True
+
+    def update_pixbuf(self, active=-1):
+        '''Updates internal icon pixbuf.'''
+
+        if (self.update_grid() is False and self.old_active == active):
+            return
+
+        self.old_active = active
+
+        (w, h) = (self.pixbuf.get_width(), self.pixbuf.get_height())
+        
+        # ---ACTUAL DRAWING CODE---
+        self.gc.set_foreground(self.color_background)
+        self.pixmap.draw_rectangle(self.gc, True, 0, 0, w, h)
+
+        self.gc.set_foreground(self.color_inactive)
+
+        i = 0
+        for cell in self.grid:
+            if i == active:
+                self.gc.set_foreground(self.color_active)
+            else:
+                self.gc.set_foreground(self.color_inactive)
+
+            i = i + 1
+
+            (x, y, size_x, size_y) = cell
+            self.pixmap.draw_rectangle(self.gc, True, x, y, size_x, size_y)
+        # -------------------------
+
+        self.pixbuf.get_from_drawable(self.pixmap, self.colormap, 0, 0, 0, 0, w, h)
+        self.pixbuf = self.pixbuf.add_alpha(True, chr(0x23), chr(0x57),
+                chr(0xbd))
+        self.icon.set_from_pixbuf(self.pixbuf)
+
+    def get_screen(self):
+        '''Returns the clicked grid box number.'''
+
+        (pointer_x, pointer_y, mods) = \
+            self.icon.get_screen().get_root_window().get_pointer()
+
+        (screen, rectangle, orientation) = self.icon.get_geometry()
+        (width, height, size_x, size_y) = rectangle
+	(w, h) = self.conf['geometry']
+
+        pos_x = pointer_x - width - ( size_x - w ) / 2;
+        pos_y = pointer_y - height - ( size_y - h ) / 2;
+
+        i = 0
+        for cell in self.grid:
+            (x, y, size_x, size_y) = cell
+            if pos_x >= x and pos_x <= x + size_x and pos_y >= y \
+                and pos_y <= y + size_y:
+                return i
+            i = i + 1
+
+        return -1
+
+    def left(self, status_icon):
+        '''Callback for left-clicks.'''
+
+        num = self.get_screen()
+
+        if 0 <= num <= self.pager.get_desktop_count():
+            self.update_pixbuf(num)
+            gobject.idle_add(self.pager.switch_desktop, num)
+
+    def scroll(self, status_icon, event):
+        '''Callback for scroll wheel actions.'''
+
+        if event.direction == gtk.gdk.SCROLL_UP:
+            target = self.pager.get_current_desktop() - 1
+        elif event.direction == gtk.gdk.SCROLL_DOWN:
+            target = self.pager.get_current_desktop() + 1
+        else:
+            return
+
+        self.pager.switch_desktop(target % self.pager.get_desktop_count())
+
+    def desktop_callback(self, widget, data=None):
+        '''Callback for the menu's desktop selector.'''
+
+        if widget.get_active():
+            self.pager.switch_desktop(data)
+
+    def get_menu_about(self):
+        '''Returns a menu for the right-click action.'''
+
+        menu = gtk.Menu()
+
+        submenu = gtk.Menu()
+        group = None
+        i = 0
+        for desktop in self.pager.get_desktop_names():
+            item = gtk.RadioMenuItem(group, desktop)
+
+            group = item
+
+            if i == self.pager.get_current_desktop():
+                item.set_active(True)
+
+            item.connect('toggled', self.desktop_callback, i)
+            i = i + 1
+            submenu.add(item)
+
+        item = gtk.MenuItem('Desktops')
+        item.set_submenu(submenu)
+        menu.add(item)
+
+        sep = gtk.SeparatorMenuItem()
+        menu.add(sep)
+
+        item = gtk.ImageMenuItem(gtk.STOCK_ABOUT)
+        item.connect('activate', self.about)
+        menu.add(item)
+
+        item = gtk.ImageMenuItem(gtk.STOCK_QUIT)
+        item.connect("activate", gtk.main_quit)
+        menu.add(item)
+
+        self.menu = menu
+        menu.show_all()
+        return menu
+
+    def right(self, status_icon, button, activate_time):
+        '''Callback for right-clicks.'''
+
+        self.get_menu_about().popup(
+            None,
+            None,
+            gtk.status_icon_position_menu,
+            1,
+            activate_time,
+            self.icon,
+            )
+
+    def about(self, menu_item):
+        '''Shows an about dialog.'''
+
+        about = gtk.AboutDialog()
+
+        about.set_name(self.name)
+        about.set_version(self.version)
+        about.set_authors(self.author)
+        about.set_comments('notification area / systray pager')
+        about.set_copyright('Copyright (c) 2010 Philip Busch')
+        about.set_website(self.website)
+        about.set_logo(self.pixbuf)
+        about.set_program_name(self.name)
+        about.run()
+        about.hide()
+
+    def __setitem__(self, key, val):
+        '''Sets config variable key to val.'''
+
+        self.conf[key] = val
+
+    def __getitem__(self, key):
+        '''Returns the value of config variable key.'''
+
+        return self.conf[key]
+
+    def set(self, key, val):
+        '''Sets config variable key to val.'''
+
+        self.conf[key] = val
+
+    # Obsolete. Use __getitem__() or corresponding syntax instead.
+    def get(self, key):
+        '''Returns the value of config variable key.'''
+
+        return self.conf[key]
+
+    def main(self):
+        '''Starts the main GTK loop.'''
+
+        num = self.pager.get_current_desktop()
+        self.update_pixbuf(num)
+        gtk.main()
+
+
+
+
+if __name__ == '__main__':
+
+    def print_help(option, opt, value, parser):
+        print("{0} is a lightweight pager running in the notification area".format(__appname__))
+	print("of freedesktop-compliant window managers\n")
+        parser.print_help()
+	print("\nRun \"man neap\" or see {0} for more information.".format(__website__))
+	print("\nReport bugs to <vzxwco@gmail.com>")
+        sys.exit(0)
+
+    parser = OptionParser()
+
+    parser.add_option('-p', '--padding', dest='padding',
+                      help='number of pixels between outer edge and grid'
+                      , metavar='N')
+
+    parser.add_option('-s', '--spacing', dest='spacing',
+                      help='number of pixels between rows/cols in the grid'
+                      , metavar='N')
+
+    parser.add_option('-a', '--active-color', dest='color_active',
+                      help='color of active desktop', metavar='C')
+
+    parser.add_option('-i', '--inactive-color', dest='color_inactive',
+                      help='color of inactive desktop(s)', metavar='C')
+
+    parser.add_option('-b', '--background-color',
+                      dest='color_background', help='background color',
+                      metavar='C')
+
+    parser.add_option('-r', '--rows', dest='rows',
+                      help='number of grid rows', metavar='N')
+
+    parser.add_option('-c', '--columns', dest='columns',
+                      help='number of grid columns', metavar='N')
+
+    parser.add_option('-P', '--pager', dest='pager',
+                      help='select a specific pager: virtual|viewport|auto',
+                      metavar='P')
+
+    parser.add_option('-g', '--geometry', dest='geometry',
+                      help='set icon geometry', metavar='WxH')
+
+    parser.add_option('-v', '--version', action='store_true', dest='version',
+                      default=False, help="print version information and exit")
+
+    parser.remove_option('-h')
+    parser.add_option('-h', '--help', action="callback", callback=print_help,
+                      help='print this help text and exit')
+
+    (opts, args) = parser.parse_args()
+
+    if opts.version:
+        print("%s %s" % (__appname__, __version__))
+        exit()
+
+    cfile = os.path.expanduser('~/.neaprc')
+    if not os.path.exists(cfile):
+        try:
+            f = open(cfile, 'w')
+            f.write(DEFAULT_CONFIG.format(__appname__, __version__,
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+
+            f.close()
+        except IOError (errno, strerror):
+            print ('{0}: {1}: {2}'.format(__appname__, cfile, strerror))
+            sys.exit(-1)
+
+    config = NeapConfig()
+
+    if not config.read_configfiles([cfile]):
+        sys.exit(-1)
+
+    config['padding'] = opts.padding
+    config['spacing'] = opts.spacing
+    config['color_active'] = opts.color_active
+    config['color_inactive'] = opts.color_inactive
+    config['color_background'] = opts.color_background
+    config['rows'] = opts.rows
+    config['columns'] = opts.columns
+    config['pager'] = opts.pager
+    config['geometry'] = opts.geometry
+
+    neap = Neap(config)
+
+    neap.main()

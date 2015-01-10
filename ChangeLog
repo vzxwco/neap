@@ -1,0 +1,74 @@
+2011-11-27
+- added config option "geometry"
+- added CLI option --geometry
+- added file neap.desktop (to be placed in /usr/share/applications/
+- updated list of authors
+
+2010-11-01
+- performance improvements
+- moved all the configuration to a NeapConfig object
+- added CLI option -v, --version
+- updated list of authors
+
+2010-10-31
+- separated icon's desktop layout from "real" (window manager's) desktop layout
+- viewport pager uses configured 'rows' and 'cols' when present
+- user can now force a specific pager via config option 'pager', and command line argument '-g' or '--pager'
+- fixed left-click bug introduced with viewport support
+- removed debug information output from viewport pager
+
+2010-10-30
+- preliminary viewport support
+- replaced calls to intern_atom() by get_atom() to improve performance
+- some Python3 improvements
+- TODO: add virtual/viewport switch to config
+- TODO: update documentation
+
+2010-06-22
+- Added __setitem()__ and __getitem()__, replacing set() and get()
+- read_configfile() uses RawConfigParser now; removed hand-written parser
+- WARNING: config file now needs a section header, "[neap]"
+
+2010-06-12
+- PEP 8 source code formatting
+
+2010-06-04
+- many useful stylistic changes. Thanks Stephan!
+
+2010-06-02
+- desktop layout handling completely rewritten
+- now dynamically adjusting to changes in the number or layout of workspaces
+
+2010-06-01
+- added scroll wheel support to switch between desktops. Thanks Stephan!
+
+2010-05-07
+- added support for non-neap-induced workspace switches, see issue #2
+
+2010-04-10
+- moved inline license to separate file License.txt
+
+2010-03-22
+- added config file support
+- TODO: support for ~/.config/ dir
+- minor source documentation improvements
+
+2010-03-14
+- fixed call to gtk.gdk.Pixbuf.add_alpha to pass chars
+
+2010-03-12
+- added command line option parser
+- minor bug fixes (off-by-one in grid layout)
+
+2010-03-11
+- added support for transparent background 
+
+2010-03-10
+- added context menu with desktop switcher
+- added about dialog
+- added background color support
+
+2010-03-08
+- incomplete desktop switching
+- basic class layout
+
